@@ -6,10 +6,12 @@
         "description": "Input WebSocket Access Point For XiaoZhi AI",
         "data": {
           "client_endpoint": "WebSocket Access Point",
+          "gateway_url": "Xiaozhi Gateway URL",
           "name": "name",
           "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
         },
         "data_description": {
+          "gateway_url": "Internal gateway used for wake arbitration and room context, for example http://127.0.0.1:8125.",
           "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
         }
       }

@@ -6,10 +6,12 @@
         "description": "输入 WebSocket 客户端地址以连接 MCP。",
         "data": {
           "client_endpoint": "小智MCP接入点地址",
+          "gateway_url": "小智前置网关地址",
           "name": "名称",
           "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
         },
         "data_description": {
+          "gateway_url": "用于唤醒仲裁和房间上下文的内网网关，例如 http://127.0.0.1:8125。",
           "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
         }
       }

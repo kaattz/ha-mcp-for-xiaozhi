@@ -8,10 +8,12 @@ See https://modelcontextprotocol.io/docs/concepts/architecture#implementation-ex
 """
 
 from collections.abc import Callable, Sequence
+import asyncio
 import json
 import logging
 from typing import Any
 
+import aiohttp
 from mcp import types
 from mcp.server import Server
 import voluptuous as vol
@@ -21,7 +23,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
-from .const import STATELESS_LLM_API
+from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
+from .gateway_context import (
+    GatewayContextError,
+    build_context_payload,
+    parse_active_context,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +49,10 @@ def _format_tool(
 
 
 async def create_server(
-    hass: HomeAssistant, llm_api_id: str | list[str], llm_context: llm.LLMContext
+    hass: HomeAssistant,
+    llm_api_id: str | list[str],
+    llm_context: llm.LLMContext,
+    gateway_url: str = DEFAULT_GATEWAY_URL,
 ) -> Server:
     """Create a new Model Context Protocol Server.
 
@@ -62,6 +72,23 @@ async def create_server(
         """Get the LLM API selected."""
         # Backwards compatibility with old MCP Server config
         return await llm.async_get_api(hass, llm_api_id, llm_context)
+
+    async def get_contextual_api_instance(tool_arguments: dict) -> llm.APIInstance:
+        """Get the LLM API selected with active Xiaozhi room context."""
+        active_context = await _fetch_active_context(gateway_url)
+        context_payload = build_context_payload(
+            base_context=llm_context.context,
+            active_context=active_context,
+            tool_arguments=tool_arguments,
+        )
+        contextual_llm_context = llm.LLMContext(
+            platform=llm_context.platform,
+            context=context_payload["context"],
+            language=llm_context.language,
+            assistant=llm_context.assistant,
+            device_id=context_payload["device_id"],
+        )
+        return await llm.async_get_api(hass, llm_api_id, contextual_llm_context)
 
     @server.list_prompts()  # type: ignore[no-untyped-call, misc]
     async def handle_list_prompts() -> list[types.Prompt]:
@@ -104,7 +131,10 @@ async def create_server(
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
-        llm_api = await get_api_instance()
+        try:
+            llm_api = await get_contextual_api_instance(arguments)
+        except GatewayContextError as e:
+            raise HomeAssistantError(f"Xiaozhi gateway active context unavailable: {e}") from e
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)
         _LOGGER.error("Tool call: %s(%s)", tool_input.tool_name, tool_input.tool_args)
 
@@ -120,4 +150,17 @@ async def create_server(
         ]
 
     return server
+
+
+async def _fetch_active_context(gateway_url: str):
+    url = gateway_url.rstrip("/") + "/active-context"
+    timeout = aiohttp.ClientTimeout(total=3)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise GatewayContextError(f"gateway returned HTTP {response.status}")
+                return parse_active_context(await response.json())
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        raise GatewayContextError(str(e)) from e
 

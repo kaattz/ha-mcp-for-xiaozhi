@@ -11,7 +11,7 @@ from homeassistant.const import CONF_LLM_HASS_API
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import llm
 
-from .const import DOMAIN
+from .const import CONF_GATEWAY_URL, DEFAULT_GATEWAY_URL, DOMAIN
 from .server import create_server
 from .session import Session
 from .types import WsMCPServerConfigEntry
@@ -67,8 +67,9 @@ async def _connect_to_client(hass: HomeAssistant, entry: WsMCPServerConfigEntry)
         device_id=None,
     )
     llm_api_id = entry.data[CONF_LLM_HASS_API]
+    gateway_url = entry.data.get(CONF_GATEWAY_URL, DEFAULT_GATEWAY_URL)
     _LOGGER.info("mcp llm_api_id: %s", llm_api_id)
-    server = await create_server(hass, llm_api_id, context)
+    server = await create_server(hass, llm_api_id, context, gateway_url)
     options = await hass.async_add_executor_job(server.create_initialization_options)
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)

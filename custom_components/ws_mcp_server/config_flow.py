@@ -15,7 +15,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.config_entries import ConfigEntry
 from .session import SessionManager
 
-from .const import DOMAIN
+from .const import CONF_GATEWAY_URL, DEFAULT_GATEWAY_URL, DOMAIN
 
 CONF_CLIENT_ENDPOINT = "client_endpoint"
 CONF_MODE = "control_mode"
@@ -63,6 +63,10 @@ class WsMCPServerConfigFlow(ConfigFlow, domain=DOMAIN):
                 {
                     #vol.Required(CONF_CLIENT_ENDPOINT): TextSelector(),
                     vol.Required(CONF_CLIENT_ENDPOINT): selector.TextSelector(),
+                    vol.Optional(
+                        CONF_GATEWAY_URL,
+                        default=DEFAULT_GATEWAY_URL,
+                    ): selector.TextSelector(),
                     vol.Optional(
                         CONF_LLM_HASS_API,          # llm_hass_api
                         default=[llm.LLM_API_ASSIST], # assist
