@@ -19,6 +19,7 @@ spec.loader.exec_module(gateway_context)
 GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
+is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 parse_active_context = gateway_context.parse_active_context
 
 
@@ -97,3 +98,12 @@ def test_build_context_payload_does_not_inject_room_when_tool_has_explicit_room(
 
 def test_has_explicit_room_or_area_checks_nested_arguments():
     assert has_explicit_room_or_area({"target": {"area_id": "bedroom"}})
+
+
+@pytest.mark.parametrize("gateway_url", [None, "", "   "])
+def test_gateway_context_is_disabled_when_gateway_url_is_empty(gateway_url):
+    assert not is_gateway_context_enabled(gateway_url)
+
+
+def test_gateway_context_is_enabled_when_gateway_url_is_set():
+    assert is_gateway_context_enabled("http://127.0.0.1:8125")

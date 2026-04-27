@@ -30,18 +30,18 @@ Homeassistant MCP server for 小智AI，直连小智AI官方服务器。
 
 ### 本分支改动说明
 
-这个分支保留原来的“小智官方服务器直连 Home Assistant MCP”流程，只增加了和 `xiaozhi-gateway` 配合使用的房间上下文能力。
+这个分支保留原来的“小智官方服务器直连 Home Assistant MCP”流程，并可选增加和 `xiaozhi-gateway` 配合使用的房间上下文能力。
 
 | 改动 | 作用 |
 |---|---|
-| 新增 `gateway_url` 配置项 | 在集成配置页填写小智前置网关地址，默认 `http://127.0.0.1:8125` |
-| 调用 HA 工具前请求 `xiaozhi-gateway` | 从 `/active-context` 获取当前被唤醒的小智设备和房间 |
+| 新增 `gateway_url` 配置项 | 在集成配置页填写小智前置网关地址；留空则保持普通 MCP 用法 |
+| 填写 `gateway_url` 后请求 `xiaozhi-gateway` | 调用 HA 工具前从 `/active-context` 获取当前被唤醒的小智设备和房间 |
 | 注入房间上下文 | 把 `room_id`、`room_name`、`ha_area_id` 写入 Home Assistant `LLMContext`，让 HA 控制更容易落到当前房间 |
 | 保留显式房间优先级 | 如果小智传来的工具参数里已经有 `room`、`room_id`、`area` 或 `area_id`，插件不会覆盖 |
-| 网关无上下文时直接报错 | 不猜房间，避免误控其他区域 |
+| 启用网关但无上下文时直接报错 | 不猜房间，避免误控其他区域 |
 | 新增 `gateway_context.py` 和测试 | 单独验证上下文解析、房间注入和显式房间跳过逻辑 |
 
-使用这个分支时，需要同时部署 `xiaozhi-gateway`。网关负责记录当前活跃设备和房间，本插件只在执行 Home Assistant 工具前读取这个上下文。
+如果填写了 `gateway_url`，需要同时部署 `xiaozhi-gateway`。网关负责记录当前活跃设备和房间，本插件只在执行 Home Assistant 工具前读取这个上下文。如果不填写，插件不会请求网关，直接走原来的 MCP 调用逻辑。
 
 ---
 ### 功能演示（为爱发电不易，有币投投币、没币点点赞、刷几个弹幕也行）

@@ -22,6 +22,14 @@ class ActiveGatewayContext:
     ha_device_id: str | None = None
 
 
+def normalize_gateway_url(gateway_url: str | None) -> str:
+    return (gateway_url or "").strip().rstrip("/")
+
+
+def is_gateway_context_enabled(gateway_url: str | None) -> bool:
+    return bool(normalize_gateway_url(gateway_url))
+
+
 def parse_active_context(payload: dict[str, Any]) -> ActiveGatewayContext:
     if not payload.get("active"):
         raise GatewayContextError("No active Xiaozhi room context")

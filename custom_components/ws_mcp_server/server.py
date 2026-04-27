@@ -27,6 +27,8 @@ from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
 from .gateway_context import (
     GatewayContextError,
     build_context_payload,
+    is_gateway_context_enabled,
+    normalize_gateway_url,
     parse_active_context,
 )
 
@@ -52,7 +54,7 @@ async def create_server(
     hass: HomeAssistant,
     llm_api_id: str | list[str],
     llm_context: llm.LLMContext,
-    gateway_url: str = DEFAULT_GATEWAY_URL,
+    gateway_url: str | None = DEFAULT_GATEWAY_URL,
 ) -> Server:
     """Create a new Model Context Protocol Server.
 
@@ -131,10 +133,13 @@ async def create_server(
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
-        try:
-            llm_api = await get_contextual_api_instance(arguments)
-        except GatewayContextError as e:
-            raise HomeAssistantError(f"Xiaozhi gateway active context unavailable: {e}") from e
+        if is_gateway_context_enabled(gateway_url):
+            try:
+                llm_api = await get_contextual_api_instance(arguments)
+            except GatewayContextError as e:
+                raise HomeAssistantError(f"Xiaozhi gateway active context unavailable: {e}") from e
+        else:
+            llm_api = await get_api_instance()
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)
         _LOGGER.error("Tool call: %s(%s)", tool_input.tool_name, tool_input.tool_args)
 
@@ -152,8 +157,11 @@ async def create_server(
     return server
 
 
-async def _fetch_active_context(gateway_url: str):
-    url = gateway_url.rstrip("/") + "/active-context"
+async def _fetch_active_context(gateway_url: str | None):
+    gateway_url = normalize_gateway_url(gateway_url)
+    if not gateway_url:
+        raise GatewayContextError("gateway URL is empty")
+    url = gateway_url + "/active-context"
     timeout = aiohttp.ClientTimeout(total=3)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
