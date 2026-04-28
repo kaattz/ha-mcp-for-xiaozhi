@@ -14,14 +14,30 @@
           "gateway_url": "可选。用于唤醒仲裁和房间上下文的内网网关。留空则使用普通 MCP 行为，不注入房间上下文。",
           "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
         }
+      },
+      "reconfigure": {
+        "title": "修改小智MCP接入点",
+        "description": "修改 WebSocket 客户端地址、网关地址或 Home Assistant 控制 API。",
+        "data": {
+          "client_endpoint": "小智MCP接入点地址",
+          "gateway_url": "小智前置网关地址",
+          "name": "名称",
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+        },
+        "data_description": {
+          "gateway_url": "可选。用于唤醒仲裁和房间上下文的内网网关。留空则使用普通 MCP 行为，不注入房间上下文。",
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+        }
       }
     },
     "error": {
       "llm_api_required": "必须选择一组api",
-      "single_instance_allowed": "只能配置一个 MCP Server 实例"
+      "single_instance_allowed": "只能配置一个 MCP Server 实例",
+      "already_configured": "相同配置已经存在"
     },
     "abort": {
-      "single_instance_allowed": "只能配置一个 MCP Server 实例"
+      "single_instance_allowed": "只能配置一个 MCP Server 实例",
+      "reconfigure_successful": "配置已更新"
     }
   }
 }

@@ -60,21 +60,27 @@ def build_context_payload(
     base_context: dict[str, Any],
     active_context: ActiveGatewayContext,
     tool_arguments: dict[str, Any],
+    inject_preferred_area_id: bool = False,
 ) -> dict[str, Any]:
     context = dict(base_context)
     context["xiaozhi_device_id"] = active_context.device_id
+    contextual_tool_arguments = dict(tool_arguments)
 
     if has_explicit_room_or_area(tool_arguments):
         return {
             "context": context,
             "device_id": None,
+            "tool_arguments": contextual_tool_arguments,
         }
 
     context["room_id"] = active_context.room_id
     context["room_name"] = active_context.room_name
     context["ha_area_id"] = active_context.ha_area_id
+    if inject_preferred_area_id:
+        contextual_tool_arguments["preferred_area_id"] = active_context.ha_area_id
 
     return {
         "context": context,
         "device_id": active_context.ha_device_id,
+        "tool_arguments": contextual_tool_arguments,
     }

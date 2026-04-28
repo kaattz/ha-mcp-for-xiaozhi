@@ -14,14 +14,30 @@
           "gateway_url": "Optional internal gateway used for wake arbitration and room context. Leave empty to use normal MCP behavior without room context.",
           "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
         }
+      },
+      "reconfigure": {
+        "title": "Edit Xiaozhi MCP Access Point",
+        "description": "Edit the WebSocket access point, gateway URL, or Home Assistant control API.",
+        "data": {
+          "client_endpoint": "WebSocket Access Point",
+          "gateway_url": "Xiaozhi Gateway URL",
+          "name": "name",
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+        },
+        "data_description": {
+          "gateway_url": "Optional internal gateway used for wake arbitration and room context. Leave empty to use normal MCP behavior without room context.",
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+        }
       }
     },
     "error": {
       "llm_api_required": "You must choose one api at least",
-      "single_instance_allowed": "single_instance_allowed"
+      "single_instance_allowed": "single_instance_allowed",
+      "already_configured": "This configuration already exists"
     },
     "abort": {
-      "single_instance_allowed": "single_instance_allowed"
+      "single_instance_allowed": "single_instance_allowed",
+      "reconfigure_successful": "Configuration updated"
     }
   }
 }

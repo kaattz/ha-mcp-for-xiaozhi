@@ -75,7 +75,9 @@ async def create_server(
         # Backwards compatibility with old MCP Server config
         return await llm.async_get_api(hass, llm_api_id, llm_context)
 
-    async def get_contextual_api_instance(tool_arguments: dict) -> llm.APIInstance:
+    async def get_contextual_api_instance(
+        tool_name: str, tool_arguments: dict
+    ) -> tuple[llm.APIInstance, dict]:
         """Get the LLM API selected with active Xiaozhi room context."""
         active_context = await _fetch_active_context(gateway_url)
         context_payload = build_context_payload(
@@ -90,7 +92,14 @@ async def create_server(
             assistant=llm_context.assistant,
             device_id=context_payload["device_id"],
         )
-        return await llm.async_get_api(hass, llm_api_id, contextual_llm_context)
+        llm_api = await llm.async_get_api(hass, llm_api_id, contextual_llm_context)
+        context_payload = build_context_payload(
+            base_context=llm_context.context,
+            active_context=active_context,
+            tool_arguments=tool_arguments,
+            inject_preferred_area_id=_tool_supports_preferred_area_id(llm_api, tool_name),
+        )
+        return llm_api, context_payload["tool_arguments"]
 
     @server.list_prompts()  # type: ignore[no-untyped-call, misc]
     async def handle_list_prompts() -> list[types.Prompt]:
@@ -135,7 +144,7 @@ async def create_server(
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
             try:
-                llm_api = await get_contextual_api_instance(arguments)
+                llm_api, arguments = await get_contextual_api_instance(name, arguments)
             except GatewayContextError as e:
                 raise HomeAssistantError(f"Xiaozhi gateway active context unavailable: {e}") from e
         else:
@@ -171,4 +180,23 @@ async def _fetch_active_context(gateway_url: str | None):
                 return parse_active_context(await response.json())
     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
         raise GatewayContextError(str(e)) from e
+
+
+def _tool_supports_preferred_area_id(llm_api: llm.APIInstance, tool_name: str) -> bool:
+    for tool in llm_api.tools:
+        if tool.name == tool_name:
+            return _has_preferred_area_slot(tool)
+    return False
+
+
+def _has_preferred_area_slot(tool: llm.Tool) -> bool:
+    extra_slots = getattr(tool, "extra_slots", None)
+    if extra_slots and "preferred_area_id" in extra_slots:
+        return True
+
+    wrapped_tool = getattr(tool, "tool", None)
+    if wrapped_tool is not None:
+        return _has_preferred_area_slot(wrapped_tool)
+
+    return False
 

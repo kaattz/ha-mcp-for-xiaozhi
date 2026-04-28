@@ -60,6 +60,32 @@ def test_build_context_payload_injects_default_room_context():
             "ha_area_id": "living_room",
         },
         "device_id": "ha-device",
+        "tool_arguments": {},
+    }
+
+
+def test_build_context_payload_injects_preferred_area_id_for_supported_intent_tool():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "living_room",
+            "room_name": "客厅",
+            "ha_area_id": "ke_ting",
+        }
+    )
+
+    payload = build_context_payload(
+        base_context={},
+        active_context=active_context,
+        tool_arguments={"name": "窗帘", "domain": "cover"},
+        inject_preferred_area_id=True,
+    )
+
+    assert payload["tool_arguments"] == {
+        "name": "窗帘",
+        "domain": "cover",
+        "preferred_area_id": "ke_ting",
     }
 
 
@@ -93,7 +119,30 @@ def test_build_context_payload_does_not_inject_room_when_tool_has_explicit_room(
     assert payload == {
         "context": {"xiaozhi_device_id": "xiaozhi-device"},
         "device_id": None,
+        "tool_arguments": arguments,
     }
+
+
+def test_build_context_payload_does_not_inject_preferred_area_when_tool_has_explicit_room():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "living_room",
+            "room_name": "客厅",
+            "ha_area_id": "ke_ting",
+        }
+    )
+
+    arguments = {"name": "窗帘", "domain": "cover", "area": "主卧"}
+    payload = build_context_payload(
+        base_context={},
+        active_context=active_context,
+        tool_arguments=arguments,
+        inject_preferred_area_id=True,
+    )
+
+    assert payload["tool_arguments"] == arguments
 
 
 def test_has_explicit_room_or_area_checks_nested_arguments():
