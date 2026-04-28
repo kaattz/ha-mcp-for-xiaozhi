@@ -21,6 +21,7 @@ build_context_payload = gateway_context.build_context_payload
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 parse_active_context = gateway_context.parse_active_context
+should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
 
 
 def test_parse_active_context_requires_active_response():
@@ -143,6 +144,12 @@ def test_build_context_payload_does_not_inject_preferred_area_when_tool_has_expl
     )
 
     assert payload["tool_arguments"] == arguments
+
+
+def test_should_inject_preferred_area_id_for_home_assistant_intent_tools():
+    assert should_inject_preferred_area_id("HassTurnOn", False)
+    assert should_inject_preferred_area_id("assist__HassTurnOff", False)
+    assert not should_inject_preferred_area_id("calendar_get_events", False)
 
 
 def test_has_explicit_room_or_area_checks_nested_arguments():

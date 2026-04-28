@@ -30,6 +30,7 @@ from .gateway_context import (
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
+    should_inject_preferred_area_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,8 +98,18 @@ async def create_server(
             base_context=llm_context.context,
             active_context=active_context,
             tool_arguments=tool_arguments,
-            inject_preferred_area_id=_tool_supports_preferred_area_id(llm_api, tool_name),
+            inject_preferred_area_id=should_inject_preferred_area_id(
+                tool_name,
+                _tool_supports_preferred_area_id(llm_api, tool_name),
+            ),
         )
+        if context_payload["tool_arguments"] != tool_arguments:
+            _LOGGER.info(
+                "Injected Xiaozhi room context: tool=%s room=%s area_id=%s",
+                tool_name,
+                active_context.room_name,
+                active_context.ha_area_id,
+            )
         return llm_api, context_payload["tool_arguments"]
 
     @server.list_prompts()  # type: ignore[no-untyped-call, misc]

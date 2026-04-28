@@ -7,6 +7,7 @@ from typing import Any
 
 
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
+HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 
 
 class GatewayContextError(RuntimeError):
@@ -28,6 +29,14 @@ def normalize_gateway_url(gateway_url: str | None) -> str:
 
 def is_gateway_context_enabled(gateway_url: str | None) -> bool:
     return bool(normalize_gateway_url(gateway_url))
+
+
+def should_inject_preferred_area_id(
+    tool_name: str, supports_preferred_area_id: bool
+) -> bool:
+    return supports_preferred_area_id or tool_name.rsplit("__", 1)[-1].startswith(
+        HOME_ASSISTANT_INTENT_TOOL_PREFIX
+    )
 
 
 def parse_active_context(payload: dict[str, Any]) -> ActiveGatewayContext:
