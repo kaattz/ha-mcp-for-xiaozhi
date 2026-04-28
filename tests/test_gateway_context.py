@@ -36,6 +36,7 @@ def test_parse_active_context_requires_room_id():
 
 
 def test_build_context_payload_injects_default_room_context():
+    base_context = object()
     active_context = parse_active_context(
         {
             "active": True,
@@ -48,19 +49,13 @@ def test_build_context_payload_injects_default_room_context():
     )
 
     payload = build_context_payload(
-        base_context={"existing": "value"},
+        base_context=base_context,
         active_context=active_context,
         tool_arguments={},
     )
 
     assert payload == {
-        "context": {
-            "existing": "value",
-            "xiaozhi_device_id": "xiaozhi-device",
-            "room_id": "living_room",
-            "room_name": "客厅",
-            "ha_area_id": "living_room",
-        },
+        "context": base_context,
         "device_id": "ha-device",
         "tool_arguments": {},
     }
@@ -101,6 +96,7 @@ def test_build_context_payload_injects_preferred_area_id_for_supported_intent_to
     ],
 )
 def test_build_context_payload_does_not_inject_room_when_tool_has_explicit_room(arguments):
+    base_context = object()
     active_context = parse_active_context(
         {
             "active": True,
@@ -113,13 +109,13 @@ def test_build_context_payload_does_not_inject_room_when_tool_has_explicit_room(
     )
 
     payload = build_context_payload(
-        base_context={},
+        base_context=base_context,
         active_context=active_context,
         tool_arguments=arguments,
     )
 
     assert payload == {
-        "context": {"xiaozhi_device_id": "xiaozhi-device"},
+        "context": base_context,
         "device_id": None,
         "tool_arguments": arguments,
     }
