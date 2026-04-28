@@ -8,6 +8,13 @@ from typing import Any
 
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
+GATEWAY_ROOM_PROMPT = (
+    "Xiaozhi gateway room context is enabled. When the user does not explicitly "
+    "name a room or area, still call the Home Assistant intent tool. Do not ask "
+    "which room or area first. The MCP server will inject preferred_area_id for "
+    "the currently active Xiaozhi room. If the user explicitly names a room or "
+    "area, preserve that explicit target."
+)
 
 
 class GatewayContextError(RuntimeError):
@@ -37,6 +44,10 @@ def should_inject_preferred_area_id(
     return supports_preferred_area_id or tool_name.rsplit("__", 1)[-1].startswith(
         HOME_ASSISTANT_INTENT_TOOL_PREFIX
     )
+
+
+def build_gateway_room_prompt(base_prompt: str) -> str:
+    return f"{base_prompt}\n\n{GATEWAY_ROOM_PROMPT}"
 
 
 def parse_active_context(payload: dict[str, Any]) -> ActiveGatewayContext:

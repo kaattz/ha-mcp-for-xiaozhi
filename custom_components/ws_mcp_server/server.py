@@ -26,7 +26,9 @@ from homeassistant.helpers import llm
 from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
 from .gateway_context import (
     GatewayContextError,
+    GATEWAY_ROOM_PROMPT,
     build_context_payload,
+    build_gateway_room_prompt,
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
@@ -37,13 +39,18 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _format_tool(
-    tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None
+    tool: llm.Tool,
+    custom_serializer: Callable[[Any], Any] | None,
+    gateway_context_enabled: bool = False,
 ) -> types.Tool:
     """Format tool specification."""
     input_schema = convert(tool.parameters, custom_serializer=custom_serializer)
+    description = tool.description or ""
+    if gateway_context_enabled and should_inject_preferred_area_id(tool.name, False):
+        description = f"{description}\n\n{GATEWAY_ROOM_PROMPT}".strip()
     return types.Tool(
         name=tool.name,
-        description=tool.description or "",
+        description=description,
         inputSchema={
             "type": "object",
             "properties": input_schema["properties"],
@@ -130,6 +137,10 @@ async def create_server(
         if name != llm_api.api.name:
             raise ValueError(f"Unknown prompt: {name}")
 
+        api_prompt = llm_api.api_prompt
+        if is_gateway_context_enabled(gateway_url):
+            api_prompt = build_gateway_room_prompt(api_prompt)
+
         return types.GetPromptResult(
             description=f"Default prompt for Home Assistant {llm_api.api.name} API",
             messages=[
@@ -137,7 +148,7 @@ async def create_server(
                     role="assistant",
                     content=types.TextContent(
                         type="text",
-                        text=llm_api.api_prompt,
+                        text=api_prompt,
                     ),
                 )
             ],
@@ -148,7 +159,14 @@ async def create_server(
         """List available time tools."""
         llm_api = await get_api_instance()
         _LOGGER.error("mcp list tools:%s )",llm_api.tools)
-        return [_format_tool(tool, llm_api.custom_serializer) for tool in llm_api.tools]
+        return [
+            _format_tool(
+                tool,
+                llm_api.custom_serializer,
+                is_gateway_context_enabled(gateway_url),
+            )
+            for tool in llm_api.tools
+        ]
 
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:

@@ -18,6 +18,7 @@ spec.loader.exec_module(gateway_context)
 
 GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
+build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 parse_active_context = gateway_context.parse_active_context
@@ -150,6 +151,14 @@ def test_should_inject_preferred_area_id_for_home_assistant_intent_tools():
     assert should_inject_preferred_area_id("HassTurnOn", False)
     assert should_inject_preferred_area_id("assist__HassTurnOff", False)
     assert not should_inject_preferred_area_id("calendar_get_events", False)
+
+
+def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
+    prompt = build_gateway_room_prompt("base prompt")
+
+    assert "base prompt" in prompt
+    assert "Do not ask which room or area first" in prompt
+    assert "preferred_area_id" in prompt
 
 
 def test_has_explicit_room_or_area_checks_nested_arguments():
