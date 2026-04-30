@@ -34,6 +34,11 @@ from .gateway_context import (
     parse_active_context,
     should_inject_preferred_area_id,
 )
+from .pending_confirmation import (
+    handle_pending_confirmation_tool,
+    is_pending_confirmation_tool,
+    pending_confirmation_tool_specs,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +60,14 @@ def _format_tool(
             "type": "object",
             "properties": input_schema["properties"],
         },
+    )
+
+
+def _format_pending_tool(spec: dict[str, Any]) -> types.Tool:
+    return types.Tool(
+        name=spec["name"],
+        description=spec["description"],
+        inputSchema=spec["inputSchema"],
     )
 
 
@@ -158,8 +171,8 @@ async def create_server(
     async def list_tools() -> list[types.Tool]:
         """List available time tools."""
         llm_api = await get_api_instance()
-        _LOGGER.error("mcp list tools:%s )",llm_api.tools)
-        return [
+        _LOGGER.debug("MCP list tools count=%d", len(llm_api.tools))
+        tools = [
             _format_tool(
                 tool,
                 llm_api.custom_serializer,
@@ -167,10 +180,40 @@ async def create_server(
             )
             for tool in llm_api.tools
         ]
+        if is_gateway_context_enabled(gateway_url):
+            tools.extend(
+                _format_pending_tool(spec)
+                for spec in pending_confirmation_tool_specs()
+            )
+        return tools
 
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
+        if is_pending_confirmation_tool(name):
+            try:
+                active_context = await _fetch_active_context(gateway_url)
+            except GatewayContextError:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps({"status": "active_context_unavailable"}),
+                    )
+                ]
+            tool_response = await handle_pending_confirmation_tool(
+                name,
+                arguments,
+                gateway_url=gateway_url,
+                active_context=active_context,
+                hass=hass,
+            )
+            return [
+                types.TextContent(
+                    type="text",
+                    text=json.dumps(tool_response),
+                )
+            ]
+
         if is_gateway_context_enabled(gateway_url):
             try:
                 llm_api, arguments = await get_contextual_api_instance(name, arguments)
@@ -179,7 +222,7 @@ async def create_server(
         else:
             llm_api = await get_api_instance()
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)
-        _LOGGER.error("Tool call: %s(%s)", tool_input.tool_name, tool_input.tool_args)
+        _LOGGER.debug("MCP tool call: %s", tool_input.tool_name)
 
         try:
             tool_response = await llm_api.async_call_tool(tool_input)

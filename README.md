@@ -40,8 +40,32 @@ Homeassistant MCP server for 小智AI，直连小智AI官方服务器。
 | 保留显式房间优先级 | 如果小智传来的工具参数里已经有 `room`、`room_id`、`area` 或 `area_id`，插件不会覆盖 |
 | 启用网关但无上下文时直接报错 | 不猜房间，避免误控其他区域 |
 | 新增 `gateway_context.py` 和测试 | 单独验证上下文解析、房间注入和显式房间跳过逻辑 |
+| 新增 pending confirmation 工具 | 在同一个 MCP 接入点里暴露 `GetPendingConfirmation` 和 `ResolvePendingConfirmation`，用于处理 HA 询问后的 yes/no 确认 |
 
 如果填写了 `gateway_url`，需要同时部署 `xiaozhi-gateway`。网关负责记录当前活跃设备和房间，本插件只在执行 Home Assistant 工具前读取这个上下文。如果不填写，插件不会请求网关，直接走原来的 MCP 调用逻辑。
+
+### Pending Confirmation
+
+这个能力用于“HA 先询问，用户确认后再执行动作”的场景，例如：
+
+```text
+HA 自动化发现客厅闷热
+  -> xiaozhi-gateway 创建 pending confirmation
+  -> ESP32 通过 text.<client_id>_question 播报“是否打开空调”
+  -> 用户回答“好的”
+  -> 小智云调用 ResolvePendingConfirmation(decision=yes)
+  -> 本插件向 HA 发事件 xiaozhi_gateway_pending_confirmation_resolved
+  -> HA 自动化收到事件后打开空调
+```
+
+注意：
+
+| 规则 | 说明 |
+|---|---|
+| 仍然只有一个 MCP 接入点 | 不需要在小智云里配置第二个 gateway MCP。 |
+| 无 pending 不执行 | 如果 gateway 没有有效待确认问题，`ResolvePendingConfirmation` 返回 `no_pending_confirmation`。 |
+| 上下文不可用不猜测 | 如果 `/active-context` 不可用，返回 `active_context_unavailable`。 |
+| 动作仍由 HA 自动化执行 | 本插件只发事件，不直接调用 HA 服务。 |
 
 ---
 ### 功能演示（为爱发电不易，有币投投币、没币点点赞、刷几个弹幕也行）
