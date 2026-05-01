@@ -9,6 +9,7 @@ from typing import Any
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
+DEFAULT_GATEWAY_PORT = 8125
 GATEWAY_ROOM_PROMPT = (
     "Xiaozhi gateway room context is enabled. When the user does not explicitly "
     "name a room or area, still call the Home Assistant intent tool. Do not ask "
@@ -39,7 +40,17 @@ class ActiveGatewayContext:
 
 
 def normalize_gateway_url(gateway_url: str | None) -> str:
-    return (gateway_url or "").strip().rstrip("/")
+    gateway_url = (gateway_url or "").strip().rstrip("/")
+    if not gateway_url:
+        return ""
+
+    if "://" not in gateway_url:
+        host, separator, path = gateway_url.partition("/")
+        if ":" not in host:
+            host = f"{host}:{DEFAULT_GATEWAY_PORT}"
+        gateway_url = f"http://{host}{separator}{path}"
+
+    return gateway_url
 
 
 def is_gateway_context_enabled(gateway_url: str | None) -> bool:

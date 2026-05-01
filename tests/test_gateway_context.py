@@ -21,6 +21,7 @@ build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
+normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
 
@@ -175,3 +176,7 @@ def test_gateway_context_is_disabled_when_gateway_url_is_empty(gateway_url):
 
 def test_gateway_context_is_enabled_when_gateway_url_is_set():
     assert is_gateway_context_enabled("http://127.0.0.1:8125")
+
+
+def test_normalize_gateway_url_accepts_bare_gateway_host():
+    assert normalize_gateway_url("192.168.166.68") == "http://192.168.166.68:8125"
