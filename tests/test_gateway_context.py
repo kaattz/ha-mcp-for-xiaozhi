@@ -30,6 +30,11 @@ def test_parse_active_context_requires_active_response():
         parse_active_context({"active": False})
 
 
+def test_parse_active_context_reports_multiple_active_contexts():
+    with pytest.raises(GatewayContextError, match="multiple active"):
+        parse_active_context({"active": False, "status": "multiple_active_contexts"})
+
+
 def test_parse_active_context_requires_room_id():
     with pytest.raises(GatewayContextError, match="missing room_id"):
         parse_active_context({"active": True, "device_id": "device"})
@@ -154,6 +159,8 @@ def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
 
     assert "base prompt" in prompt
     assert "Do not ask which room or area first" in prompt
+    assert "If the user names an area together with a device" in prompt
+    assert "pass both area and name" in prompt
     assert "preferred_area_id" in prompt
 
 

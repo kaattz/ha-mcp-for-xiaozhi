@@ -25,19 +25,16 @@ from homeassistant.helpers import llm
 
 from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
 from .gateway_context import (
+    ActiveContextAmbiguousError,
     GatewayContextError,
     GATEWAY_ROOM_PROMPT,
     build_context_payload,
     build_gateway_room_prompt,
+    has_explicit_room_or_area,
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
     should_inject_preferred_area_id,
-)
-from .pending_confirmation import (
-    handle_pending_confirmation_tool,
-    is_pending_confirmation_tool,
-    pending_confirmation_tool_specs,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,14 +57,6 @@ def _format_tool(
             "type": "object",
             "properties": input_schema["properties"],
         },
-    )
-
-
-def _format_pending_tool(spec: dict[str, Any]) -> types.Tool:
-    return types.Tool(
-        name=spec["name"],
-        description=spec["description"],
-        inputSchema=spec["inputSchema"],
     )
 
 
@@ -180,45 +169,35 @@ async def create_server(
             )
             for tool in llm_api.tools
         ]
-        if is_gateway_context_enabled(gateway_url):
-            tools.extend(
-                _format_pending_tool(spec)
-                for spec in pending_confirmation_tool_specs()
-            )
         return tools
 
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
-        if is_pending_confirmation_tool(name):
-            try:
-                active_context = await _fetch_active_context(gateway_url)
-            except GatewayContextError:
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=json.dumps({"status": "active_context_unavailable"}),
-                    )
-                ]
-            tool_response = await handle_pending_confirmation_tool(
-                name,
-                arguments,
-                gateway_url=gateway_url,
-                active_context=active_context,
-                hass=hass,
-            )
-            return [
-                types.TextContent(
-                    type="text",
-                    text=json.dumps(tool_response),
-                )
-            ]
-
         if is_gateway_context_enabled(gateway_url):
-            try:
-                llm_api, arguments = await get_contextual_api_instance(name, arguments)
-            except GatewayContextError as e:
-                raise HomeAssistantError(f"Xiaozhi gateway active context unavailable: {e}") from e
+            if has_explicit_room_or_area(arguments):
+                llm_api = await get_api_instance()
+            else:
+                try:
+                    llm_api, arguments = await get_contextual_api_instance(
+                        name, arguments
+                    )
+                except ActiveContextAmbiguousError:
+                    return [
+                        types.TextContent(
+                            type="text",
+                            text=json.dumps(
+                                {
+                                    "status": "active_context_ambiguous",
+                                    "reason": "multiple_active_contexts",
+                                }
+                            ),
+                        )
+                    ]
+                except GatewayContextError as e:
+                    raise HomeAssistantError(
+                        f"Xiaozhi gateway active context unavailable: {e}"
+                    ) from e
         else:
             llm_api = await get_api_instance()
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)

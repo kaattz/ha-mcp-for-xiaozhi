@@ -8,17 +8,25 @@ from typing import Any
 
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
+MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 GATEWAY_ROOM_PROMPT = (
     "Xiaozhi gateway room context is enabled. When the user does not explicitly "
     "name a room or area, still call the Home Assistant intent tool. Do not ask "
     "which room or area first. The MCP server will inject preferred_area_id for "
-    "the currently active Xiaozhi room. If the user explicitly names a room or "
-    "area, preserve that explicit target."
+    "the currently active Xiaozhi room. If the user names an area together with "
+    "a device, pass both area and name to the Home Assistant intent tool. For "
+    "example, for 'turn on the living room chandelier', call HassTurnOn with "
+    "area='living room' and name='chandelier'. If the user explicitly names a "
+    "room or area, preserve that explicit target."
 )
 
 
 class GatewayContextError(RuntimeError):
     """Raised when the gateway cannot provide a usable active context."""
+
+
+class ActiveContextAmbiguousError(GatewayContextError):
+    """Raised when more than one Xiaozhi room context is active."""
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,8 @@ def build_gateway_room_prompt(base_prompt: str) -> str:
 
 def parse_active_context(payload: dict[str, Any]) -> ActiveGatewayContext:
     if not payload.get("active"):
+        if payload.get("status") == MULTIPLE_ACTIVE_CONTEXTS:
+            raise ActiveContextAmbiguousError("multiple active Xiaozhi room contexts")
         raise GatewayContextError("No active Xiaozhi room context")
 
     for key in ("device_id", "room_id", "room_name", "ha_area_id"):
