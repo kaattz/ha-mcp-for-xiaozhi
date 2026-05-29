@@ -30,7 +30,7 @@ from .gateway_context import (
     GATEWAY_ROOM_PROMPT,
     build_context_payload,
     build_gateway_room_prompt,
-    has_explicit_room_or_area,
+    has_explicit_tool_target,
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
@@ -175,7 +175,7 @@ async def create_server(
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
-            if has_explicit_room_or_area(arguments):
+            if has_explicit_tool_target(arguments):
                 llm_api = await get_api_instance()
             else:
                 try:

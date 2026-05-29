@@ -20,6 +20,7 @@ GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
+has_explicit_tool_target = gateway_context.has_explicit_tool_target
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
@@ -167,6 +168,19 @@ def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
 
 def test_has_explicit_room_or_area_checks_nested_arguments():
     assert has_explicit_room_or_area({"target": {"area_id": "bedroom"}})
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"entity_id": "climate.vrf_master_bedroom"},
+        {"entity_ids": ["climate.vrf_master_bedroom"]},
+        {"target": {"entity_id": "climate.vrf_master_bedroom"}},
+        {"name": "climate.vrf_master_bedroom"},
+    ],
+)
+def test_has_explicit_tool_target_accepts_direct_entity_targets(arguments):
+    assert has_explicit_tool_target(arguments)
 
 
 @pytest.mark.parametrize("gateway_url", [None, "", "   "])

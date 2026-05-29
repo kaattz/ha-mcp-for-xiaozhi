@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
+ENTITY_TARGET_KEYS = {"entity_id", "entity_ids"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 DEFAULT_GATEWAY_PORT = 8125
@@ -97,6 +99,35 @@ def has_explicit_room_or_area(arguments: dict[str, Any]) -> bool:
     return False
 
 
+def has_explicit_tool_target(arguments: dict[str, Any]) -> bool:
+    for key, value in arguments.items():
+        if key in ROOM_OR_AREA_KEYS and value:
+            return True
+        if key in ENTITY_TARGET_KEYS and _has_entity_target_value(value):
+            return True
+        if key == "name" and isinstance(value, str) and _looks_like_entity_id(value):
+            return True
+        if isinstance(value, dict) and has_explicit_tool_target(value):
+            return True
+        if isinstance(value, list) and any(
+            isinstance(item, dict) and has_explicit_tool_target(item) for item in value
+        ):
+            return True
+    return False
+
+
+def _has_entity_target_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(_has_entity_target_value(item) for item in value)
+    return False
+
+
+def _looks_like_entity_id(value: str) -> bool:
+    return bool(re.fullmatch(r"[a-z_]+\.[a-z0-9_]+", value.strip()))
+
+
 def build_context_payload(
     base_context: Any,
     active_context: ActiveGatewayContext,
@@ -105,7 +136,7 @@ def build_context_payload(
 ) -> dict[str, Any]:
     contextual_tool_arguments = dict(tool_arguments)
 
-    if has_explicit_room_or_area(tool_arguments):
+    if has_explicit_tool_target(tool_arguments):
         return {
             "context": base_context,
             "device_id": None,
