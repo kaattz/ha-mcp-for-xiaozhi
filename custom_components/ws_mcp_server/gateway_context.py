@@ -16,7 +16,10 @@ GATEWAY_ROOM_PROMPT = (
     "Xiaozhi gateway room context is enabled. When the user does not explicitly "
     "name a room or area, still call the Home Assistant intent tool. Do not ask "
     "which room or area first. The MCP server will inject preferred_area_id for "
-    "the currently active Xiaozhi room. If the user names an area together with "
+    "the currently active Xiaozhi room. If the tool result status is "
+    "active_context_unavailable or direct_entity_target_without_room, do not "
+    "claim the action or check succeeded; ask which room or area the user means. "
+    "If the user names an area together with "
     "a device, pass both area and name to the Home Assistant intent tool. For "
     "example, for 'turn on the living room chandelier', call HassTurnOn with "
     "area='living room' and name='chandelier'. If the user explicitly names a "
@@ -67,6 +70,18 @@ def should_inject_preferred_area_id(
     )
 
 
+def should_fetch_gateway_context(
+    tool_name: str,
+    arguments: dict[str, Any],
+    supports_preferred_area_id: bool,
+) -> bool:
+    if has_explicit_room_or_area(arguments):
+        return False
+    if has_direct_entity_target(arguments):
+        return False
+    return should_inject_preferred_area_id(tool_name, supports_preferred_area_id)
+
+
 def build_gateway_room_prompt(base_prompt: str) -> str:
     return f"{base_prompt}\n\n{GATEWAY_ROOM_PROMPT}"
 
@@ -100,17 +115,19 @@ def has_explicit_room_or_area(arguments: dict[str, Any]) -> bool:
 
 
 def has_explicit_tool_target(arguments: dict[str, Any]) -> bool:
+    return has_explicit_room_or_area(arguments) or has_direct_entity_target(arguments)
+
+
+def has_direct_entity_target(arguments: dict[str, Any]) -> bool:
     for key, value in arguments.items():
-        if key in ROOM_OR_AREA_KEYS and value:
-            return True
         if key in ENTITY_TARGET_KEYS and _has_entity_target_value(value):
             return True
         if key == "name" and isinstance(value, str) and _looks_like_entity_id(value):
             return True
-        if isinstance(value, dict) and has_explicit_tool_target(value):
+        if isinstance(value, dict) and has_direct_entity_target(value):
             return True
         if isinstance(value, list) and any(
-            isinstance(item, dict) and has_explicit_tool_target(item) for item in value
+            isinstance(item, dict) and has_direct_entity_target(item) for item in value
         ):
             return True
     return False
@@ -136,7 +153,7 @@ def build_context_payload(
 ) -> dict[str, Any]:
     contextual_tool_arguments = dict(tool_arguments)
 
-    if has_explicit_tool_target(tool_arguments):
+    if has_explicit_room_or_area(tool_arguments):
         return {
             "context": base_context,
             "device_id": None,

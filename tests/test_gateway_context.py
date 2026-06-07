@@ -20,11 +20,13 @@ GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
+has_direct_entity_target = gateway_context.has_direct_entity_target
 has_explicit_tool_target = gateway_context.has_explicit_tool_target
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
+should_fetch_gateway_context = gateway_context.should_fetch_gateway_context
 
 
 def test_parse_active_context_requires_active_response():
@@ -150,10 +152,62 @@ def test_build_context_payload_does_not_inject_preferred_area_when_tool_has_expl
     assert payload["tool_arguments"] == arguments
 
 
+def test_build_context_payload_injects_room_when_model_guesses_entity_id_without_room():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+
+    payload = build_context_payload(
+        base_context={},
+        active_context=active_context,
+        tool_arguments={
+            "entity_ids": "['climate.vrf_master_bedroom']",
+            "hvac_mode": "off",
+        },
+        inject_preferred_area_id=True,
+    )
+
+    assert payload["tool_arguments"] == {
+        "entity_ids": "['climate.vrf_master_bedroom']",
+        "hvac_mode": "off",
+        "preferred_area_id": "ci_wo",
+    }
+
+
 def test_should_inject_preferred_area_id_for_home_assistant_intent_tools():
     assert should_inject_preferred_area_id("HassTurnOn", False)
     assert should_inject_preferred_area_id("assist__HassTurnOff", False)
     assert not should_inject_preferred_area_id("calendar_get_events", False)
+
+
+def test_should_fetch_gateway_context_for_current_room_intent_tool():
+    assert should_fetch_gateway_context(
+        "HassTurnOff",
+        {"name": "纱帘", "domain": ["cover"]},
+        supports_preferred_area_id=False,
+    )
+
+
+def test_should_not_fetch_gateway_context_for_fixed_room_tool():
+    assert not should_fetch_gateway_context(
+        "livingroom_off_light",
+        {},
+        supports_preferred_area_id=False,
+    )
+
+
+def test_should_not_fetch_gateway_context_for_direct_entity_target():
+    assert not should_fetch_gateway_context(
+        "set_multiple_ac_hvac_mode",
+        {"entity_ids": "['climate.vrf_master_bedroom']"},
+        supports_preferred_area_id=False,
+    )
 
 
 def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
@@ -161,6 +215,8 @@ def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
 
     assert "base prompt" in prompt
     assert "Do not ask which room or area first" in prompt
+    assert "active_context_unavailable" in prompt
+    assert "ask which room or area" in prompt
     assert "If the user names an area together with a device" in prompt
     assert "pass both area and name" in prompt
     assert "preferred_area_id" in prompt
@@ -168,6 +224,19 @@ def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
 
 def test_has_explicit_room_or_area_checks_nested_arguments():
     assert has_explicit_room_or_area({"target": {"area_id": "bedroom"}})
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"entity_id": "climate.vrf_master_bedroom"},
+        {"entity_ids": "['climate.vrf_master_bedroom']"},
+        {"target": {"entity_id": "climate.vrf_master_bedroom"}},
+        {"name": "climate.vrf_master_bedroom"},
+    ],
+)
+def test_has_direct_entity_target_accepts_entity_ids(arguments):
+    assert has_direct_entity_target(arguments)
 
 
 @pytest.mark.parametrize(

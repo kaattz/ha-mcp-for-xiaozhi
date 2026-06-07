@@ -30,12 +30,15 @@ from .gateway_context import (
     GATEWAY_ROOM_PROMPT,
     build_context_payload,
     build_gateway_room_prompt,
-    has_explicit_tool_target,
+    has_direct_entity_target,
+    has_explicit_room_or_area,
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
+    should_fetch_gateway_context,
     should_inject_preferred_area_id,
 )
+from .tool_schema import build_mcp_input_schema
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,10 +56,7 @@ def _format_tool(
     return types.Tool(
         name=tool.name,
         description=description,
-        inputSchema={
-            "type": "object",
-            "properties": input_schema["properties"],
-        },
+        inputSchema=build_mcp_input_schema(input_schema),
     )
 
 
@@ -175,29 +175,88 @@ async def create_server(
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
-            if has_explicit_tool_target(arguments):
+            if has_explicit_room_or_area(arguments):
                 llm_api = await get_api_instance()
-            else:
-                try:
-                    llm_api, arguments = await get_contextual_api_instance(
-                        name, arguments
+            elif has_direct_entity_target(arguments):
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {
+                                "status": "direct_entity_target_without_room",
+                                "reason": (
+                                    "Direct entity_id/entity_ids targets require "
+                                    "an explicit room or area when Xiaozhi gateway "
+                                    "room context is enabled."
+                                ),
+                            }
+                        ),
                     )
-                except ActiveContextAmbiguousError:
+                ]
+            else:
+                llm_api = None
+                needs_gateway_context = should_fetch_gateway_context(
+                    name,
+                    arguments,
+                    supports_preferred_area_id=False,
+                )
+                if not needs_gateway_context:
+                    llm_api = await get_api_instance()
+                    needs_gateway_context = should_fetch_gateway_context(
+                        name,
+                        arguments,
+                        supports_preferred_area_id=_tool_supports_preferred_area_id(
+                            llm_api, name
+                        ),
+                    )
+                if needs_gateway_context:
+                    try:
+                        llm_api, arguments = await get_contextual_api_instance(
+                            name, arguments
+                        )
+                    except ActiveContextAmbiguousError:
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    {
+                                        "status": "active_context_ambiguous",
+                                        "reason": "multiple_active_contexts",
+                                    }
+                                ),
+                            )
+                        ]
+                    except GatewayContextError as e:
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    {
+                                        "status": "active_context_unavailable",
+                                        "reason": str(e),
+                                        "action": "ask_user_for_room",
+                                    }
+                                ),
+                            )
+                        ]
+                if llm_api is None:
+                    llm_api = await get_api_instance()
+                if has_direct_entity_target(arguments):
                     return [
                         types.TextContent(
                             type="text",
                             text=json.dumps(
                                 {
-                                    "status": "active_context_ambiguous",
-                                    "reason": "multiple_active_contexts",
+                                    "status": "direct_entity_target_without_room",
+                                    "reason": (
+                                        "Direct entity_id/entity_ids targets require "
+                                        "an explicit room or area when Xiaozhi gateway "
+                                        "room context is enabled."
+                                    ),
                                 }
                             ),
                         )
                     ]
-                except GatewayContextError as e:
-                    raise HomeAssistantError(
-                        f"Xiaozhi gateway active context unavailable: {e}"
-                    ) from e
         else:
             llm_api = await get_api_instance()
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)
