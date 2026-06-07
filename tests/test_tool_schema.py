@@ -29,3 +29,22 @@ def test_build_mcp_input_schema_preserves_validation_contract():
     }
 
     assert build_mcp_input_schema(input_schema) == input_schema
+
+
+def test_build_mcp_input_schema_adds_room_metadata_for_direct_entity_tools():
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "entity_ids": {"type": "string"},
+            "hvac_mode": {"type": "string"},
+        },
+        "additionalProperties": False,
+    }
+
+    schema = build_mcp_input_schema(input_schema, gateway_context_enabled=True)
+
+    assert schema["properties"]["entity_ids"] == {"type": "string"}
+    assert schema["properties"]["hvac_mode"] == {"type": "string"}
+    assert schema["properties"]["area"]["type"] == "string"
+    assert schema["properties"]["room"]["type"] == "string"
+    assert schema["additionalProperties"] is False

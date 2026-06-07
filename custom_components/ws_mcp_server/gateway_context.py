@@ -12,6 +12,23 @@ ENTITY_TARGET_KEYS = {"entity_id", "entity_ids"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 DEFAULT_GATEWAY_PORT = 8125
+AC_ENTITY_BY_ROOM_KEY = {
+    "livingroom": "climate.vrf_livingroom",
+    "living_room": "climate.vrf_livingroom",
+    "ke_ting": "climate.vrf_livingroom",
+    "客厅": "climate.vrf_livingroom",
+    "diningroom": "climate.vrf_diningroom",
+    "dining_room": "climate.vrf_diningroom",
+    "can_ting": "climate.vrf_diningroom",
+    "餐厅": "climate.vrf_diningroom",
+    "master_bedroom": "climate.vrf_master_bedroom",
+    "zhu_wo": "climate.vrf_master_bedroom",
+    "主卧": "climate.vrf_master_bedroom",
+    "guest_bedroom": "climate.vrf_guest_bedroom",
+    "ci_wo": "climate.vrf_guest_bedroom",
+    "次卧": "climate.vrf_guest_bedroom",
+    "客卧": "climate.vrf_guest_bedroom",
+}
 GATEWAY_ROOM_PROMPT = (
     "Xiaozhi gateway room context is enabled. When the user does not explicitly "
     "name a room or area, still call the Home Assistant intent tool. Do not ask "
@@ -23,7 +40,11 @@ GATEWAY_ROOM_PROMPT = (
     "a device, pass both area and name to the Home Assistant intent tool. For "
     "example, for 'turn on the living room chandelier', call HassTurnOn with "
     "area='living room' and name='chandelier'. If the user explicitly names a "
-    "room or area, preserve that explicit target."
+    "room or area, preserve that explicit target. For entity_id/entity_ids "
+    "tools, include area or room metadata when the user explicitly named a room "
+    "or area. If the user did not name a room or area, do not assume a fixed "
+    "room; the MCP server will resolve supported current-room AC scripts from "
+    "the active Xiaozhi room context."
 )
 
 
@@ -131,6 +152,90 @@ def has_direct_entity_target(arguments: dict[str, Any]) -> bool:
         ):
             return True
     return False
+
+
+def strip_room_metadata_for_direct_entity_target(
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    if not has_direct_entity_target(arguments):
+        return arguments
+    return _strip_room_metadata(arguments)
+
+
+def _strip_room_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_room_metadata(item)
+            for key, item in value.items()
+            if key not in ROOM_OR_AREA_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_room_metadata(item) for item in value]
+    return value
+
+
+def rewrite_current_room_ac_entity_targets(
+    tool_name: str,
+    arguments: dict[str, Any],
+    active_context: ActiveGatewayContext,
+) -> dict[str, Any]:
+    if not _is_ac_script_tool(tool_name):
+        return arguments
+    if has_explicit_room_or_area(arguments):
+        return arguments
+
+    entity_ids = arguments.get("entity_ids")
+    if not _has_single_ac_entity_target(entity_ids):
+        return arguments
+
+    current_room_entity_id = _ac_entity_for_active_context(active_context)
+    if current_room_entity_id is None:
+        return arguments
+
+    rewritten_arguments = dict(arguments)
+    rewritten_arguments["entity_ids"] = _format_entity_ids_like_input(
+        entity_ids,
+        current_room_entity_id,
+    )
+    return rewritten_arguments
+
+
+def _is_ac_script_tool(tool_name: str) -> bool:
+    return tool_name.rsplit("__", 1)[-1].startswith("set_multiple_ac_")
+
+
+def _has_single_ac_entity_target(entity_ids: Any) -> bool:
+    if isinstance(entity_ids, str):
+        return len(re.findall(r"climate\.vrf_[a-z0-9_]+", entity_ids)) == 1
+    if isinstance(entity_ids, list):
+        return len(entity_ids) == 1 and _looks_like_ac_entity_id(entity_ids[0])
+    return False
+
+
+def _looks_like_ac_entity_id(value: Any) -> bool:
+    return isinstance(value, str) and bool(
+        re.fullmatch(r"climate\.vrf_[a-z0-9_]+", value.strip())
+    )
+
+
+def _ac_entity_for_active_context(
+    active_context: ActiveGatewayContext,
+) -> str | None:
+    for room_key in (
+        active_context.room_id,
+        active_context.ha_area_id,
+        active_context.room_name,
+    ):
+        entity_id = AC_ENTITY_BY_ROOM_KEY.get(room_key)
+        if entity_id:
+            return entity_id
+    return None
+
+
+def _format_entity_ids_like_input(entity_ids: Any, entity_id: str) -> Any:
+    if isinstance(entity_ids, list):
+        return [entity_id]
+    return f"['{entity_id}']"
 
 
 def _has_entity_target_value(value: Any) -> bool:

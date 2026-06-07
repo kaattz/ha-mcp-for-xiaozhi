@@ -27,6 +27,12 @@ normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
 should_fetch_gateway_context = gateway_context.should_fetch_gateway_context
+rewrite_current_room_ac_entity_targets = (
+    gateway_context.rewrite_current_room_ac_entity_targets
+)
+strip_room_metadata_for_direct_entity_target = (
+    gateway_context.strip_room_metadata_for_direct_entity_target
+)
 
 
 def test_parse_active_context_requires_active_response():
@@ -210,6 +216,99 @@ def test_should_not_fetch_gateway_context_for_direct_entity_target():
     )
 
 
+def test_strip_room_metadata_for_direct_entity_target_keeps_tool_arguments():
+    assert strip_room_metadata_for_direct_entity_target(
+        {
+            "entity_ids": "['climate.vrf_master_bedroom']",
+            "hvac_mode": "cool",
+            "area": "主卧",
+        }
+    ) == {
+        "entity_ids": "['climate.vrf_master_bedroom']",
+        "hvac_mode": "cool",
+    }
+
+
+def test_rewrite_current_room_ac_script_entity_target_from_active_context():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+
+    assert rewrite_current_room_ac_entity_targets(
+        "set_multiple_ac_hvac_mode",
+        {
+            "entity_ids": "['climate.vrf_master_bedroom']",
+            "hvac_mode": "cool",
+        },
+        active_context,
+    ) == {
+        "entity_ids": "['climate.vrf_guest_bedroom']",
+        "hvac_mode": "cool",
+    }
+
+
+def test_rewrite_current_room_ac_script_keeps_explicit_room_target():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+
+    arguments = {
+        "entity_ids": "['climate.vrf_master_bedroom']",
+        "hvac_mode": "cool",
+        "area": "主卧",
+    }
+
+    assert (
+        rewrite_current_room_ac_entity_targets(
+            "set_multiple_ac_hvac_mode",
+            arguments,
+            active_context,
+        )
+        == arguments
+    )
+
+
+def test_rewrite_current_room_ac_script_keeps_all_room_targets():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+
+    arguments = {
+        "entity_ids": (
+            "['climate.vrf_livingroom','climate.vrf_master_bedroom',"
+            "'climate.vrf_guest_bedroom']"
+        ),
+        "hvac_mode": "off",
+    }
+
+    assert (
+        rewrite_current_room_ac_entity_targets(
+            "set_multiple_ac_hvac_mode",
+            arguments,
+            active_context,
+        )
+        == arguments
+    )
+
+
 def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
     prompt = build_gateway_room_prompt("base prompt")
 
@@ -219,6 +318,8 @@ def test_build_gateway_room_prompt_tells_model_not_to_ask_for_room_first():
     assert "ask which room or area" in prompt
     assert "If the user names an area together with a device" in prompt
     assert "pass both area and name" in prompt
+    assert "entity_id/entity_ids" in prompt
+    assert "active Xiaozhi room context" in prompt
     assert "preferred_area_id" in prompt
 
 

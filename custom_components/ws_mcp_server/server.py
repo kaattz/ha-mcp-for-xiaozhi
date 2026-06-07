@@ -35,8 +35,10 @@ from .gateway_context import (
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
+    rewrite_current_room_ac_entity_targets,
     should_fetch_gateway_context,
     should_inject_preferred_area_id,
+    strip_room_metadata_for_direct_entity_target,
 )
 from .tool_schema import build_mcp_input_schema
 
@@ -56,7 +58,10 @@ def _format_tool(
     return types.Tool(
         name=tool.name,
         description=description,
-        inputSchema=build_mcp_input_schema(input_schema),
+        inputSchema=build_mcp_input_schema(
+            input_schema,
+            gateway_context_enabled=gateway_context_enabled,
+        ),
     )
 
 
@@ -175,24 +180,73 @@ async def create_server(
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
-            if has_explicit_room_or_area(arguments):
-                llm_api = await get_api_instance()
-            elif has_direct_entity_target(arguments):
-                return [
-                    types.TextContent(
-                        type="text",
-                        text=json.dumps(
-                            {
-                                "status": "direct_entity_target_without_room",
-                                "reason": (
-                                    "Direct entity_id/entity_ids targets require "
-                                    "an explicit room or area when Xiaozhi gateway "
-                                    "room context is enabled."
+            if has_direct_entity_target(arguments):
+                if not has_explicit_room_or_area(arguments):
+                    try:
+                        active_context = await _fetch_active_context(gateway_url)
+                    except ActiveContextAmbiguousError:
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    {
+                                        "status": "active_context_ambiguous",
+                                        "reason": "multiple_active_contexts",
+                                    }
                                 ),
-                            }
-                        ),
+                            )
+                        ]
+                    except GatewayContextError as e:
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    {
+                                        "status": "active_context_unavailable",
+                                        "reason": str(e),
+                                        "action": "ask_user_for_room",
+                                    }
+                                ),
+                            )
+                        ]
+
+                    rewritten_arguments = rewrite_current_room_ac_entity_targets(
+                        name,
+                        arguments,
+                        active_context,
                     )
-                ]
+                    if rewritten_arguments is arguments:
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text=json.dumps(
+                                    {
+                                        "status": "direct_entity_target_without_room",
+                                        "reason": (
+                                            "Direct entity_id/entity_ids targets require "
+                                            "an explicit room or area when Xiaozhi gateway "
+                                            "room context is enabled."
+                                        ),
+                                        "action": (
+                                            "retry_with_area_or_room_if_the_user_named_one"
+                                        ),
+                                    }
+                                ),
+                            )
+                        ]
+
+                    arguments = rewritten_arguments
+                    _LOGGER.info(
+                        "Rewrote AC entity target from Xiaozhi room context: "
+                        "tool=%s room=%s area_id=%s",
+                        name,
+                        active_context.room_name,
+                        active_context.ha_area_id,
+                    )
+                llm_api = await get_api_instance()
+                arguments = strip_room_metadata_for_direct_entity_target(arguments)
+            elif has_explicit_room_or_area(arguments):
+                llm_api = await get_api_instance()
             else:
                 llm_api = None
                 needs_gateway_context = should_fetch_gateway_context(
@@ -241,22 +295,6 @@ async def create_server(
                         ]
                 if llm_api is None:
                     llm_api = await get_api_instance()
-                if has_direct_entity_target(arguments):
-                    return [
-                        types.TextContent(
-                            type="text",
-                            text=json.dumps(
-                                {
-                                    "status": "direct_entity_target_without_room",
-                                    "reason": (
-                                        "Direct entity_id/entity_ids targets require "
-                                        "an explicit room or area when Xiaozhi gateway "
-                                        "room context is enabled."
-                                    ),
-                                }
-                            ),
-                        )
-                    ]
         else:
             llm_api = await get_api_instance()
         tool_input = llm.ToolInput(tool_name=name, tool_args=arguments)
