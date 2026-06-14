@@ -19,6 +19,7 @@ spec.loader.exec_module(gateway_context)
 GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
+inject_area_from_name_prefix = gateway_context.inject_area_from_name_prefix
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 has_direct_entity_target = gateway_context.has_direct_entity_target
 has_explicit_tool_target = gateway_context.has_explicit_tool_target
@@ -156,6 +157,32 @@ def test_build_context_payload_does_not_inject_preferred_area_when_tool_has_expl
     )
 
     assert payload["tool_arguments"] == arguments
+
+
+def test_inject_area_from_name_prefix_uses_matching_area_name():
+    assert inject_area_from_name_prefix(
+        {"name": "餐厅吊灯", "domain": ["light"]},
+        ["客厅", "餐厅", "主卧", "次卧"],
+    ) == {"name": "餐厅吊灯", "domain": ["light"], "area": "餐厅"}
+
+
+def test_inject_area_from_name_prefix_uses_longest_area_name():
+    assert inject_area_from_name_prefix(
+        {"name": "主卧卫生间灯", "domain": ["light"]},
+        ["主卧", "主卧卫生间"],
+    ) == {"name": "主卧卫生间灯", "domain": ["light"], "area": "主卧卫生间"}
+
+
+def test_inject_area_from_name_prefix_keeps_explicit_area():
+    arguments = {"name": "餐厅吊灯", "domain": ["light"], "area": "客厅"}
+
+    assert inject_area_from_name_prefix(arguments, ["餐厅"]) == arguments
+
+
+def test_inject_area_from_name_prefix_ignores_generic_name():
+    arguments = {"name": "吊灯", "domain": ["light"]}
+
+    assert inject_area_from_name_prefix(arguments, ["餐厅"]) == arguments
 
 
 def test_build_context_payload_injects_room_when_model_guesses_entity_id_without_room():

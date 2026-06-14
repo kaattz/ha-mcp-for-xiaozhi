@@ -21,7 +21,7 @@ from voluptuous_openapi import convert
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import llm
+from homeassistant.helpers import area_registry, llm
 
 from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
 from .gateway_context import (
@@ -32,6 +32,7 @@ from .gateway_context import (
     build_gateway_room_prompt,
     has_direct_entity_target,
     has_explicit_room_or_area,
+    inject_area_from_name_prefix,
     is_gateway_context_enabled,
     normalize_gateway_url,
     parse_active_context,
@@ -180,6 +181,9 @@ async def create_server(
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
+            if should_inject_preferred_area_id(name, False):
+                arguments = inject_area_from_name_prefix(arguments, _area_names(hass))
+
             if has_direct_entity_target(arguments):
                 if not has_explicit_room_or_area(arguments):
                     try:
@@ -335,6 +339,11 @@ def _tool_supports_preferred_area_id(llm_api: llm.APIInstance, tool_name: str) -
         if tool.name == tool_name:
             return _has_preferred_area_slot(tool)
     return False
+
+
+def _area_names(hass: HomeAssistant) -> list[str]:
+    registry = area_registry.async_get(hass)
+    return [area.name for area in registry.async_list_areas()]
 
 
 def _has_preferred_area_slot(tool: llm.Tool) -> bool:

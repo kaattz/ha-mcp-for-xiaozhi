@@ -139,6 +139,42 @@ def has_explicit_tool_target(arguments: dict[str, Any]) -> bool:
     return has_explicit_room_or_area(arguments) or has_direct_entity_target(arguments)
 
 
+def inject_area_from_name_prefix(
+    arguments: dict[str, Any],
+    area_names: list[str],
+) -> dict[str, Any]:
+    if has_explicit_room_or_area(arguments):
+        return arguments
+
+    name = arguments.get("name")
+    if not isinstance(name, str) or not name:
+        return arguments
+
+    area_name = _find_longest_area_name_prefix(name, area_names)
+    if area_name is None:
+        return arguments
+
+    rewritten_arguments = dict(arguments)
+    rewritten_arguments["area"] = area_name
+    return rewritten_arguments
+
+
+def _find_longest_area_name_prefix(
+    name: str,
+    area_names: list[str],
+) -> str | None:
+    normalized_name = name.strip()
+    sorted_area_names = sorted(
+        {area_name.strip() for area_name in area_names if area_name.strip()},
+        key=len,
+        reverse=True,
+    )
+    for area_name in sorted_area_names:
+        if normalized_name.startswith(area_name) and normalized_name != area_name:
+            return area_name
+    return None
+
+
 def has_direct_entity_target(arguments: dict[str, Any]) -> bool:
     for key, value in arguments.items():
         if key in ENTITY_TARGET_KEYS and _has_entity_target_value(value):
