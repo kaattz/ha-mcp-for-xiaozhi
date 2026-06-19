@@ -192,6 +192,42 @@ def normalize_generic_area_target(arguments: dict[str, Any]) -> dict[str, Any]:
     return rewritten_arguments
 
 
+def normalize_area_scoped_name_target(
+    arguments: dict[str, Any],
+    area_entity_names: list[str],
+) -> dict[str, Any]:
+    name = arguments.get("name")
+    area = arguments.get("area")
+    if not isinstance(name, str) or not isinstance(area, str):
+        return arguments
+
+    normalized_name = name.strip()
+    normalized_area = area.strip()
+    if not normalized_name or not normalized_area:
+        return arguments
+
+    normalized_candidates = {
+        entity_name.strip()
+        for entity_name in area_entity_names
+        if isinstance(entity_name, str) and entity_name.strip()
+    }
+    if normalized_name in normalized_candidates:
+        return arguments
+
+    prefixed_name = f"{normalized_area}{normalized_name}"
+    matches = [
+        entity_name
+        for entity_name in normalized_candidates
+        if entity_name == prefixed_name
+    ]
+    if len(matches) != 1:
+        return arguments
+
+    rewritten_arguments = dict(arguments)
+    rewritten_arguments["name"] = matches[0]
+    return rewritten_arguments
+
+
 def _domain_matches(value: Any, expected_domain: str) -> bool:
     if value is None:
         return True
@@ -258,9 +294,13 @@ def rewrite_current_room_ac_entity_targets(
     arguments: dict[str, Any],
     active_context: ActiveGatewayContext,
 ) -> dict[str, Any]:
-    if not _is_ac_script_tool(tool_name):
-        return arguments
     if has_explicit_room_or_area(arguments):
+        return arguments
+
+    if _is_ac_context_query_tool(tool_name):
+        return _rewrite_current_room_ac_context_query_target(arguments, active_context)
+
+    if not _is_ac_script_tool(tool_name):
         return arguments
 
     entity_ids = arguments.get("entity_ids")
@@ -279,8 +319,41 @@ def rewrite_current_room_ac_entity_targets(
     return rewritten_arguments
 
 
+def _rewrite_current_room_ac_context_query_target(
+    arguments: dict[str, Any],
+    active_context: ActiveGatewayContext,
+) -> dict[str, Any]:
+    if not _has_single_direct_ac_entity_target(arguments):
+        return arguments
+
+    current_room_entity_id = _ac_entity_for_active_context(active_context)
+    if current_room_entity_id is None:
+        return arguments
+
+    rewritten_arguments = {
+        key: value
+        for key, value in arguments.items()
+        if key not in ENTITY_TARGET_KEYS
+    }
+    rewritten_arguments["name"] = f"{active_context.room_name}空调"
+    rewritten_arguments["area"] = active_context.room_name
+    rewritten_arguments["domain"] = ["climate"]
+    return rewritten_arguments
+
+
 def _is_ac_script_tool(tool_name: str) -> bool:
     return tool_name.rsplit("__", 1)[-1].startswith("set_multiple_ac_")
+
+
+def _is_ac_context_query_tool(tool_name: str) -> bool:
+    return tool_name.rsplit("__", 1)[-1] == "GetLiveContext"
+
+
+def _has_single_direct_ac_entity_target(arguments: dict[str, Any]) -> bool:
+    for key in ("name", "entity_id", "entity_ids"):
+        if _has_single_ac_entity_target(arguments.get(key)):
+            return True
+    return False
 
 
 def _has_single_ac_entity_target(entity_ids: Any) -> bool:

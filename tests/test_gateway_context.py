@@ -21,6 +21,7 @@ build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 inject_area_from_name_prefix = gateway_context.inject_area_from_name_prefix
 normalize_generic_area_target = gateway_context.normalize_generic_area_target
+normalize_area_scoped_name_target = gateway_context.normalize_area_scoped_name_target
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 has_direct_entity_target = gateway_context.has_direct_entity_target
 has_explicit_tool_target = gateway_context.has_explicit_tool_target
@@ -216,6 +217,37 @@ def test_normalize_generic_area_target_keeps_conflicting_domain():
     assert normalize_generic_area_target(arguments) == arguments
 
 
+def test_normalize_area_scoped_name_target_expands_unique_prefixed_entity_name():
+    assert normalize_area_scoped_name_target(
+        {"name": "吊灯", "area": "餐厅", "domain": ["light"]},
+        ["餐厅吊灯", "餐厅壁灯"],
+    ) == {"name": "餐厅吊灯", "area": "餐厅", "domain": ["light"]}
+
+
+def test_normalize_area_scoped_name_target_keeps_full_entity_name():
+    arguments = {"name": "餐厅吊灯", "area": "餐厅", "domain": ["light"]}
+
+    assert (
+        normalize_area_scoped_name_target(
+            arguments,
+            ["餐厅吊灯", "餐厅壁灯"],
+        )
+        == arguments
+    )
+
+
+def test_normalize_area_scoped_name_target_keeps_unmatched_short_name():
+    arguments = {"name": "岛台灯组", "area": "餐厅", "domain": ["light"]}
+
+    assert (
+        normalize_area_scoped_name_target(
+            arguments,
+            ["餐厅吊灯", "餐厅壁灯"],
+        )
+        == arguments
+    )
+
+
 def test_build_context_payload_injects_room_when_model_guesses_entity_id_without_room():
     active_context = parse_active_context(
         {
@@ -360,6 +392,50 @@ def test_rewrite_current_room_ac_script_keeps_all_room_targets():
     assert (
         rewrite_current_room_ac_entity_targets(
             "set_multiple_ac_hvac_mode",
+            arguments,
+            active_context,
+        )
+        == arguments
+    )
+
+
+def test_rewrite_current_room_ac_context_query_entity_target_from_active_context():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+
+    assert rewrite_current_room_ac_entity_targets(
+        "GetLiveContext",
+        {"name": "climate.vrf_livingroom"},
+        active_context,
+    ) == {
+        "name": "次卧空调",
+        "area": "次卧",
+        "domain": ["climate"],
+    }
+
+
+def test_rewrite_current_room_ac_context_query_keeps_explicit_room_target():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "guest_bedroom",
+            "room_name": "次卧",
+            "ha_area_id": "ci_wo",
+        }
+    )
+    arguments = {"name": "climate.vrf_livingroom", "area": "客厅"}
+
+    assert (
+        rewrite_current_room_ac_entity_targets(
+            "GetLiveContext",
             arguments,
             active_context,
         )

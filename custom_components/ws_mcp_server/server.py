@@ -21,7 +21,7 @@ from voluptuous_openapi import convert
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import area_registry, llm
+from homeassistant.helpers import area_registry, device_registry, entity_registry, llm
 
 from .const import DEFAULT_GATEWAY_URL, STATELESS_LLM_API
 from .gateway_context import (
@@ -34,6 +34,7 @@ from .gateway_context import (
     has_explicit_room_or_area,
     inject_area_from_name_prefix,
     is_gateway_context_enabled,
+    normalize_area_scoped_name_target,
     normalize_generic_area_target,
     normalize_gateway_url,
     parse_active_context,
@@ -185,6 +186,14 @@ async def create_server(
             if should_inject_preferred_area_id(name, False):
                 arguments = inject_area_from_name_prefix(arguments, _area_names(hass))
             arguments = normalize_generic_area_target(arguments)
+            arguments = normalize_area_scoped_name_target(
+                arguments,
+                _area_entity_names(
+                    hass,
+                    arguments.get("area"),
+                    _domain_names(arguments),
+                ),
+            )
 
             if has_direct_entity_target(arguments):
                 if not has_explicit_room_or_area(arguments):
@@ -346,6 +355,65 @@ def _tool_supports_preferred_area_id(llm_api: llm.APIInstance, tool_name: str) -
 def _area_names(hass: HomeAssistant) -> list[str]:
     registry = area_registry.async_get(hass)
     return [area.name for area in registry.async_list_areas()]
+
+
+def _area_entity_names(
+    hass: HomeAssistant,
+    area_name: Any,
+    domains: list[str],
+) -> list[str]:
+    if not isinstance(area_name, str) or not area_name.strip():
+        return []
+
+    area_id = _area_id_by_name(hass, area_name)
+    if area_id is None:
+        return []
+
+    states = (
+        hass.states.async_all(domains[0])
+        if len(domains) == 1
+        else hass.states.async_all()
+    )
+    domain_set = set(domains)
+    entity_names = []
+    for state in states:
+        entity_domain = state.entity_id.split(".", 1)[0]
+        if domain_set and entity_domain not in domain_set:
+            continue
+        if _entity_area_id(hass, state.entity_id) == area_id:
+            entity_names.append(state.name)
+    return entity_names
+
+
+def _area_id_by_name(hass: HomeAssistant, area_name: str) -> str | None:
+    normalized_area_name = area_name.strip()
+    registry = area_registry.async_get(hass)
+    for area in registry.async_list_areas():
+        if area.name == normalized_area_name:
+            return area.id
+    return None
+
+
+def _entity_area_id(hass: HomeAssistant, entity_id: str) -> str | None:
+    entity_entry = entity_registry.async_get(hass).async_get(entity_id)
+    if entity_entry is None:
+        return None
+    if entity_entry.area_id:
+        return entity_entry.area_id
+    if entity_entry.device_id:
+        device_entry = device_registry.async_get(hass).async_get(entity_entry.device_id)
+        if device_entry is not None:
+            return device_entry.area_id
+    return None
+
+
+def _domain_names(arguments: dict) -> list[str]:
+    domain = arguments.get("domain")
+    if isinstance(domain, str) and domain:
+        return [domain]
+    if isinstance(domain, list):
+        return [item for item in domain if isinstance(item, str) and item]
+    return []
 
 
 def _has_preferred_area_slot(tool: llm.Tool) -> bool:
