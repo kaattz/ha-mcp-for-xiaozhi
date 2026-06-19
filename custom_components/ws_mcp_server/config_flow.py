@@ -11,6 +11,23 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import CONF_GATEWAY_URL, DEFAULT_GATEWAY_URL, DOMAIN
+from .gateway_context import (
+    AC_CONTROL_MODE_CUSTOM,
+    AC_CONTROL_MODE_NATIVE,
+    AC_ENTITY_FORMAT_LIST,
+    AC_ENTITY_FORMAT_STRING,
+    AC_ENTITY_FORMAT_STRING_LIST,
+    CONF_AC_CONTROL_MODE,
+    CONF_AC_CUSTOM_ENTITY_FIELD,
+    CONF_AC_CUSTOM_ENTITY_FORMAT,
+    CONF_AC_CUSTOM_MODE_FIELD,
+    CONF_AC_CUSTOM_TOOL_NAME,
+    CONF_AC_TURN_ON_HVAC_MODE,
+    DEFAULT_AC_CUSTOM_ENTITY_FIELD,
+    DEFAULT_AC_CUSTOM_ENTITY_FORMAT,
+    DEFAULT_AC_CUSTOM_MODE_FIELD,
+    DEFAULT_AC_TURN_ON_HVAC_MODE,
+)
 
 CONF_CLIENT_ENDPOINT = "client_endpoint"
 CONF_MODE = "control_mode"
@@ -62,6 +79,57 @@ class WsMCPServerConfigFlow(ConfigFlow, domain=DOMAIN):
                         multiple=True,
                     )
                 ),
+                vol.Optional(
+                    CONF_AC_CONTROL_MODE,
+                    default=AC_CONTROL_MODE_NATIVE,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(
+                                label="Native climate service",
+                                value=AC_CONTROL_MODE_NATIVE,
+                            ),
+                            SelectOptionDict(
+                                label="Custom exposed tool",
+                                value=AC_CONTROL_MODE_CUSTOM,
+                            ),
+                        ],
+                    )
+                ),
+                vol.Optional(
+                    CONF_AC_TURN_ON_HVAC_MODE,
+                    default=DEFAULT_AC_TURN_ON_HVAC_MODE,
+                ): selector.TextSelector(),
+                vol.Optional(CONF_AC_CUSTOM_TOOL_NAME): selector.TextSelector(),
+                vol.Optional(
+                    CONF_AC_CUSTOM_ENTITY_FIELD,
+                    default=DEFAULT_AC_CUSTOM_ENTITY_FIELD,
+                ): selector.TextSelector(),
+                vol.Optional(
+                    CONF_AC_CUSTOM_MODE_FIELD,
+                    default=DEFAULT_AC_CUSTOM_MODE_FIELD,
+                ): selector.TextSelector(),
+                vol.Optional(
+                    CONF_AC_CUSTOM_ENTITY_FORMAT,
+                    default=DEFAULT_AC_CUSTOM_ENTITY_FORMAT,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(
+                                label="String list",
+                                value=AC_ENTITY_FORMAT_STRING_LIST,
+                            ),
+                            SelectOptionDict(
+                                label="List",
+                                value=AC_ENTITY_FORMAT_LIST,
+                            ),
+                            SelectOptionDict(
+                                label="String",
+                                value=AC_ENTITY_FORMAT_STRING,
+                            ),
+                        ],
+                    )
+                ),
             }
         )
         if suggested_values is None:
@@ -90,6 +158,11 @@ class WsMCPServerConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if not user_input[CONF_LLM_HASS_API]:
                 errors[CONF_LLM_HASS_API] = "llm_api_required"
+            elif (
+                user_input.get(CONF_AC_CONTROL_MODE) == AC_CONTROL_MODE_CUSTOM
+                and not str(user_input.get(CONF_AC_CUSTOM_TOOL_NAME, "")).strip()
+            ):
+                errors[CONF_AC_CUSTOM_TOOL_NAME] = "ac_custom_tool_required"
             else:
                 return self.async_create_entry(
                     title=self._entry_title(user_input, llm_apis),
@@ -114,6 +187,11 @@ class WsMCPServerConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             if not user_input[CONF_LLM_HASS_API]:
                 errors[CONF_LLM_HASS_API] = "llm_api_required"
+            elif (
+                user_input.get(CONF_AC_CONTROL_MODE) == AC_CONTROL_MODE_CUSTOM
+                and not str(user_input.get(CONF_AC_CUSTOM_TOOL_NAME, "")).strip()
+            ):
+                errors[CONF_AC_CUSTOM_TOOL_NAME] = "ac_custom_tool_required"
             else:
                 unique_id = self._entry_unique_id(user_input)
                 if self._has_duplicate_unique_id(unique_id, entry.entry_id):

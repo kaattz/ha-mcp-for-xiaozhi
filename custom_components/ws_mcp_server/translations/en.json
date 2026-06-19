@@ -8,11 +8,23 @@
           "client_endpoint": "WebSocket Access Point",
           "gateway_url": "Xiaozhi Gateway URL",
           "name": "name",
-          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
+          "ac_control_mode": "Air conditioner control mode",
+          "ac_turn_on_hvac_mode": "Turn-on HVAC mode",
+          "ac_custom_tool_name": "Custom AC tool name",
+          "ac_custom_entity_field": "Custom tool entity field",
+          "ac_custom_mode_field": "Custom tool mode field",
+          "ac_custom_entity_format": "Custom tool entity format"
         },
         "data_description": {
           "gateway_url": "Optional internal gateway used for wake arbitration and room context. Leave empty to use normal MCP behavior without room context.",
-          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol.",
+          "ac_control_mode": "Use Home Assistant's native climate.set_hvac_mode by default. Choose Custom exposed tool only when you need a custom script/tool.",
+          "ac_turn_on_hvac_mode": "Default is cool. Turning off always uses off.",
+          "ac_custom_tool_name": "Required when Custom exposed tool is selected, for example set_multiple_ac_hvac_mode.",
+          "ac_custom_entity_field": "Default is entity_ids.",
+          "ac_custom_mode_field": "Default is hvac_mode.",
+          "ac_custom_entity_format": "String list generates \"['climate.xxx']\"; List generates an array; String generates one entity string."
         }
       },
       "reconfigure": {
@@ -22,16 +34,29 @@
           "client_endpoint": "WebSocket Access Point",
           "gateway_url": "Xiaozhi Gateway URL",
           "name": "name",
-          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
+          "ac_control_mode": "Air conditioner control mode",
+          "ac_turn_on_hvac_mode": "Turn-on HVAC mode",
+          "ac_custom_tool_name": "Custom AC tool name",
+          "ac_custom_entity_field": "Custom tool entity field",
+          "ac_custom_mode_field": "Custom tool mode field",
+          "ac_custom_entity_format": "Custom tool entity format"
         },
         "data_description": {
           "gateway_url": "Optional internal gateway used for wake arbitration and room context. Leave empty to use normal MCP behavior without room context.",
-          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol.",
+          "ac_control_mode": "Use Home Assistant's native climate.set_hvac_mode by default. Choose Custom exposed tool only when you need a custom script/tool.",
+          "ac_turn_on_hvac_mode": "Default is cool. Turning off always uses off.",
+          "ac_custom_tool_name": "Required when Custom exposed tool is selected, for example set_multiple_ac_hvac_mode.",
+          "ac_custom_entity_field": "Default is entity_ids.",
+          "ac_custom_mode_field": "Default is hvac_mode.",
+          "ac_custom_entity_format": "String list generates \"['climate.xxx']\"; List generates an array; String generates one entity string."
         }
       }
     },
     "error": {
       "llm_api_required": "You must choose one api at least",
+      "ac_custom_tool_required": "Custom AC tool name is required when custom control is selected",
       "single_instance_allowed": "single_instance_allowed",
       "already_configured": "This configuration already exists"
     },

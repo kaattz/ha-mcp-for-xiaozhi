@@ -8,11 +8,23 @@
           "client_endpoint": "小智MCP接入点地址",
           "gateway_url": "小智前置网关地址",
           "name": "名称",
-          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
+          "ac_control_mode": "空调控制方式",
+          "ac_turn_on_hvac_mode": "打开空调时的模式",
+          "ac_custom_tool_name": "自定义空调工具名",
+          "ac_custom_entity_field": "自定义工具实体字段",
+          "ac_custom_mode_field": "自定义工具模式字段",
+          "ac_custom_entity_format": "自定义工具实体格式"
         },
         "data_description": {
           "gateway_url": "可选。用于唤醒仲裁和房间上下文的内网网关。留空则使用普通 MCP 行为，不注入房间上下文。",
-          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol.",
+          "ac_control_mode": "默认使用 Home Assistant 原生 climate.set_hvac_mode。只有需要调用自定义脚本时才选择 Custom exposed tool。",
+          "ac_turn_on_hvac_mode": "默认 cool。关闭空调固定使用 off。",
+          "ac_custom_tool_name": "选择自定义工具时必填，例如 set_multiple_ac_hvac_mode。",
+          "ac_custom_entity_field": "默认 entity_ids。",
+          "ac_custom_mode_field": "默认 hvac_mode。",
+          "ac_custom_entity_format": "String list 会生成 \"['climate.xxx']\"；List 会生成数组；String 会生成单个实体字符串。"
         }
       },
       "reconfigure": {
@@ -22,16 +34,29 @@
           "client_endpoint": "小智MCP接入点地址",
           "gateway_url": "小智前置网关地址",
           "name": "名称",
-          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]"
+          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
+          "ac_control_mode": "空调控制方式",
+          "ac_turn_on_hvac_mode": "打开空调时的模式",
+          "ac_custom_tool_name": "自定义空调工具名",
+          "ac_custom_entity_field": "自定义工具实体字段",
+          "ac_custom_mode_field": "自定义工具模式字段",
+          "ac_custom_entity_format": "自定义工具实体格式"
         },
         "data_description": {
           "gateway_url": "可选。用于唤醒仲裁和房间上下文的内网网关。留空则使用普通 MCP 行为，不注入房间上下文。",
-          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol."
+          "llm_hass_api": "The method for controlling Home Assistant to expose with the Model Context Protocol.",
+          "ac_control_mode": "默认使用 Home Assistant 原生 climate.set_hvac_mode。只有需要调用自定义脚本时才选择 Custom exposed tool。",
+          "ac_turn_on_hvac_mode": "默认 cool。关闭空调固定使用 off。",
+          "ac_custom_tool_name": "选择自定义工具时必填，例如 set_multiple_ac_hvac_mode。",
+          "ac_custom_entity_field": "默认 entity_ids。",
+          "ac_custom_mode_field": "默认 hvac_mode。",
+          "ac_custom_entity_format": "String list 会生成 \"['climate.xxx']\"；List 会生成数组；String 会生成单个实体字符串。"
         }
       }
     },
     "error": {
       "llm_api_required": "必须选择一组api",
+      "ac_custom_tool_required": "选择自定义空调工具时必须填写工具名",
       "single_instance_allowed": "只能配置一个 MCP Server 实例",
       "already_configured": "相同配置已经存在"
     },

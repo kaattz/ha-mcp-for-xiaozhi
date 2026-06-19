@@ -19,6 +19,8 @@ from mcp.server import Server
 import voluptuous as vol
 from voluptuous_openapi import convert
 
+from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
+from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry, device_registry, entity_registry, llm
@@ -28,11 +30,15 @@ from .gateway_context import (
     ActiveContextAmbiguousError,
     GatewayContextError,
     GATEWAY_ROOM_PROMPT,
+    ac_climate_turn_hvac_mode,
+    build_ac_custom_control_tool_call,
     build_context_payload,
     build_gateway_room_prompt,
     has_direct_entity_target,
     has_explicit_room_or_area,
     inject_area_from_name_prefix,
+    is_ac_climate_turn_request,
+    is_custom_ac_control_enabled,
     is_gateway_context_enabled,
     normalize_area_scoped_name_target,
     normalize_generic_area_target,
@@ -73,6 +79,7 @@ async def create_server(
     llm_api_id: str | list[str],
     llm_context: llm.LLMContext,
     gateway_url: str | None = DEFAULT_GATEWAY_URL,
+    ac_control_config: dict[str, Any] | None = None,
 ) -> Server:
     """Create a new Model Context Protocol Server.
 
@@ -194,6 +201,140 @@ async def create_server(
                     _domain_names(arguments),
                 ),
             )
+            if is_ac_climate_turn_request(name, arguments):
+                domains = _domain_names(arguments) or ["climate"]
+                if has_explicit_room_or_area(arguments):
+                    entity_id = _single_named_area_entity_id(
+                        hass,
+                        arguments.get("area"),
+                        arguments.get("name"),
+                        domains,
+                    ) or _single_area_air_conditioner_entity_id(
+                        hass,
+                        arguments.get("area"),
+                    )
+                else:
+                    try:
+                        active_context = await _fetch_active_context(gateway_url)
+                    except ActiveContextAmbiguousError:
+                        return _json_response(
+                            {
+                                "status": "active_context_ambiguous",
+                                "reason": "multiple_active_contexts",
+                            }
+                        )
+                    except GatewayContextError as e:
+                        return _json_response(
+                            {
+                                "status": "active_context_unavailable",
+                                "reason": str(e),
+                                "action": "ask_user_for_room",
+                            }
+                        )
+                    entity_id = _single_area_air_conditioner_entity_id(
+                        hass,
+                        active_context.ha_area_id,
+                    ) or _single_area_air_conditioner_entity_id(
+                        hass,
+                        active_context.room_name,
+                    )
+                    arguments = {**arguments, "area": active_context.room_name}
+                hvac_mode = ac_climate_turn_hvac_mode(
+                    name,
+                    arguments,
+                    ac_control_config,
+                )
+                if entity_id is None or hvac_mode is None:
+                    return _json_response(
+                        {
+                            "status": "ac_target_unresolved",
+                            "reason": (
+                                "Unable to resolve exactly one air conditioner "
+                                "entity from Home Assistant area and entity state."
+                            ),
+                            "action": "check_ha_area_and_entity_name",
+                        }
+                    )
+                if is_custom_ac_control_enabled(ac_control_config):
+                    custom_call = build_ac_custom_control_tool_call(
+                        ac_control_config,
+                        entity_id,
+                        hvac_mode,
+                        arguments.get("area")
+                        if isinstance(arguments.get("area"), str)
+                        else None,
+                    )
+                    if custom_call is None:
+                        return _json_response(
+                            {
+                                "status": "ac_custom_tool_invalid",
+                                "reason": (
+                                    "Custom AC control is enabled but tool name "
+                                    "or argument fields are incomplete."
+                                ),
+                                "action": "check_ac_custom_tool_config",
+                            }
+                        )
+                    custom_tool_name, custom_arguments = custom_call
+                    llm_api = await get_api_instance()
+                    if not _has_tool(llm_api, custom_tool_name):
+                        return _json_response(
+                            {
+                                "status": "ac_custom_tool_not_found",
+                                "reason": (
+                                    "Configured custom AC control tool is not "
+                                    "exposed by the selected Home Assistant API."
+                                ),
+                                "tool": custom_tool_name,
+                                "action": "check_ac_custom_tool_config",
+                            }
+                        )
+                    custom_arguments = strip_room_metadata_for_direct_entity_target(
+                        custom_arguments
+                    )
+                    try:
+                        tool_response = await llm_api.async_call_tool(
+                            llm.ToolInput(
+                                tool_name=custom_tool_name,
+                                tool_args=custom_arguments,
+                            )
+                        )
+                    except (HomeAssistantError, vol.Invalid) as e:
+                        return _json_response(
+                            {
+                                "success": False,
+                                "error": (
+                                    f"Error calling custom AC control tool "
+                                    f"{custom_tool_name}: {e}"
+                                ),
+                            }
+                        )
+                    return _json_response(tool_response)
+                try:
+                    await _async_set_climate_hvac_mode(hass, entity_id, hvac_mode)
+                except (HomeAssistantError, vol.Invalid) as e:
+                    return _json_response(
+                        {
+                            "success": False,
+                            "error": f"Error calling climate.set_hvac_mode: {e}",
+                        }
+                    )
+                return _json_response(
+                    {
+                        "speech": {},
+                        "response_type": "action_done",
+                        "data": {
+                            "success": [
+                                {
+                                    "name": arguments.get("name"),
+                                    "type": "entity",
+                                    "id": entity_id,
+                                }
+                            ],
+                            "failed": [],
+                        },
+                    }
+                )
 
             if has_direct_entity_target(arguments):
                 if not has_explicit_room_or_area(arguments):
@@ -229,6 +370,14 @@ async def create_server(
                         name,
                         arguments,
                         active_context,
+                        _single_area_air_conditioner_entity_id(
+                            hass,
+                            active_context.ha_area_id,
+                        )
+                        or _single_area_air_conditioner_entity_id(
+                            hass,
+                            active_context.room_name,
+                        ),
                     )
                     if rewritten_arguments is arguments:
                         return [
@@ -329,6 +478,26 @@ async def create_server(
     return server
 
 
+def _json_response(payload: dict[str, Any]) -> list[types.TextContent]:
+    return [types.TextContent(type="text", text=json.dumps(payload))]
+
+
+async def _async_set_climate_hvac_mode(
+    hass: HomeAssistant,
+    entity_id: str,
+    hvac_mode: str,
+) -> None:
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        "set_hvac_mode",
+        {
+            ATTR_ENTITY_ID: entity_id,
+            "hvac_mode": hvac_mode,
+        },
+        blocking=True,
+    )
+
+
 async def _fetch_active_context(gateway_url: str | None):
     gateway_url = normalize_gateway_url(gateway_url)
     if not gateway_url:
@@ -346,9 +515,18 @@ async def _fetch_active_context(gateway_url: str | None):
 
 
 def _tool_supports_preferred_area_id(llm_api: llm.APIInstance, tool_name: str) -> bool:
+    if not _has_tool(llm_api, tool_name):
+        return False
     for tool in llm_api.tools:
         if tool.name == tool_name:
             return _has_preferred_area_slot(tool)
+    return False
+
+
+def _has_tool(llm_api: llm.APIInstance, tool_name: str) -> bool:
+    for tool in llm_api.tools:
+        if tool.name == tool_name:
+            return True
     return False
 
 
@@ -362,6 +540,54 @@ def _area_entity_names(
     area_name: Any,
     domains: list[str],
 ) -> list[str]:
+    return [state.name for state in _area_entity_states(hass, area_name, domains)]
+
+
+def _single_named_area_entity_id(
+    hass: HomeAssistant,
+    area_name: Any,
+    entity_name: Any,
+    domains: list[str],
+) -> str | None:
+    if not isinstance(entity_name, str) or not entity_name.strip():
+        return None
+
+    normalized_entity_name = entity_name.strip()
+    matches = [
+        state.entity_id
+        for state in _area_entity_states(hass, area_name, domains)
+        if state.name == normalized_entity_name
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
+def _single_area_air_conditioner_entity_id(
+    hass: HomeAssistant,
+    area_name: Any,
+) -> str | None:
+    area = _area_by_name_or_id(hass, area_name)
+    if area is None:
+        return None
+
+    states = _area_entity_states(hass, area.id, ["climate"])
+    exact_name = f"{area.name}空调"
+    exact_matches = [state.entity_id for state in states if state.name == exact_name]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    ac_matches = [state.entity_id for state in states if "空调" in state.name]
+    if len(ac_matches) != 1:
+        return None
+    return ac_matches[0]
+
+
+def _area_entity_states(
+    hass: HomeAssistant,
+    area_name: Any,
+    domains: list[str],
+):
     if not isinstance(area_name, str) or not area_name.strip():
         return []
 
@@ -375,22 +601,31 @@ def _area_entity_names(
         else hass.states.async_all()
     )
     domain_set = set(domains)
-    entity_names = []
+    area_states = []
     for state in states:
         entity_domain = state.entity_id.split(".", 1)[0]
         if domain_set and entity_domain not in domain_set:
             continue
         if _entity_area_id(hass, state.entity_id) == area_id:
-            entity_names.append(state.name)
-    return entity_names
+            area_states.append(state)
+    return area_states
 
 
 def _area_id_by_name(hass: HomeAssistant, area_name: str) -> str | None:
+    area = _area_by_name_or_id(hass, area_name)
+    if area is None:
+        return None
+    return area.id
+
+
+def _area_by_name_or_id(hass: HomeAssistant, area_name: Any):
+    if not isinstance(area_name, str):
+        return None
     normalized_area_name = area_name.strip()
     registry = area_registry.async_get(hass)
     for area in registry.async_list_areas():
-        if area.name == normalized_area_name:
-            return area.id
+        if area.name == normalized_area_name or area.id == normalized_area_name:
+            return area
     return None
 
 

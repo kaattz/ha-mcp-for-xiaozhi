@@ -28,6 +28,10 @@ has_explicit_tool_target = gateway_context.has_explicit_tool_target
 is_gateway_context_enabled = gateway_context.is_gateway_context_enabled
 normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
+ac_climate_turn_hvac_mode = gateway_context.ac_climate_turn_hvac_mode
+build_ac_custom_control_tool_call = gateway_context.build_ac_custom_control_tool_call
+is_ac_climate_turn_request = gateway_context.is_ac_climate_turn_request
+is_custom_ac_control_enabled = gateway_context.is_custom_ac_control_enabled
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
 should_fetch_gateway_context = gateway_context.should_fetch_gateway_context
 rewrite_current_room_ac_entity_targets = (
@@ -248,6 +252,101 @@ def test_normalize_area_scoped_name_target_keeps_unmatched_short_name():
     )
 
 
+def test_detects_ac_climate_turn_request():
+    assert is_ac_climate_turn_request(
+        "HassTurnOn",
+        {"name": "空调", "domain": ["climate"]},
+    )
+
+
+def test_ac_climate_turn_on_uses_cool_mode():
+    assert (
+        ac_climate_turn_hvac_mode(
+            "HassTurnOn",
+            {"name": "主卧空调", "area": "主卧", "domain": ["climate"]},
+        )
+        == "cool"
+    )
+
+
+def test_ac_climate_turn_off_uses_off_mode():
+    assert (
+        ac_climate_turn_hvac_mode(
+            "HassTurnOff",
+            {"name": "主卧空调", "area": "主卧", "domain": ["climate"]},
+        )
+        == "off"
+    )
+
+
+def test_ac_climate_turn_mode_ignores_floor_heating_target():
+    arguments = {"name": "主卧地暖", "area": "主卧", "domain": ["climate"]}
+
+    assert ac_climate_turn_hvac_mode(
+        "HassTurnOn",
+        arguments,
+    ) is None
+
+
+def test_custom_ac_control_is_disabled_by_default():
+    assert not is_custom_ac_control_enabled({})
+    assert build_ac_custom_control_tool_call(
+        {},
+        "climate.any_master_bedroom_ac",
+        "cool",
+        "主卧",
+    ) is None
+
+
+def test_build_ac_custom_control_tool_call_uses_configured_script_fields():
+    assert build_ac_custom_control_tool_call(
+        {
+            "ac_control_mode": "custom",
+            "ac_custom_tool_name": "my_ac_hvac_mode",
+            "ac_custom_entity_field": "target_entities",
+            "ac_custom_mode_field": "mode",
+            "ac_custom_entity_format": "string_list",
+        },
+        "climate.any_master_bedroom_ac",
+        "cool",
+        "主卧",
+    ) == (
+        "my_ac_hvac_mode",
+        {
+            "target_entities": "['climate.any_master_bedroom_ac']",
+            "mode": "cool",
+        },
+    )
+
+
+def test_build_ac_custom_control_tool_call_supports_list_entity_format():
+    assert build_ac_custom_control_tool_call(
+        {
+            "ac_control_mode": "custom",
+            "ac_custom_tool_name": "my_ac_hvac_mode",
+            "ac_custom_entity_format": "list",
+        },
+        "climate.any_master_bedroom_ac",
+        "off",
+        None,
+    ) == (
+        "my_ac_hvac_mode",
+        {
+            "entity_ids": ["climate.any_master_bedroom_ac"],
+            "hvac_mode": "off",
+        },
+    )
+
+
+def test_build_ac_custom_control_tool_call_rejects_missing_tool_name():
+    assert build_ac_custom_control_tool_call(
+        {"ac_control_mode": "custom"},
+        "climate.any_master_bedroom_ac",
+        "cool",
+        "主卧",
+    ) is None
+
+
 def test_build_context_payload_injects_room_when_model_guesses_entity_id_without_room():
     active_context = parse_active_context(
         {
@@ -337,8 +436,9 @@ def test_rewrite_current_room_ac_script_entity_target_from_active_context():
             "hvac_mode": "cool",
         },
         active_context,
+        "climate.any_guest_bedroom_ac",
     ) == {
-        "entity_ids": "['climate.vrf_guest_bedroom']",
+        "entity_ids": "['climate.any_guest_bedroom_ac']",
         "hvac_mode": "cool",
     }
 
@@ -365,6 +465,7 @@ def test_rewrite_current_room_ac_script_keeps_explicit_room_target():
             "set_multiple_ac_hvac_mode",
             arguments,
             active_context,
+            "climate.any_guest_bedroom_ac",
         )
         == arguments
     )
@@ -394,6 +495,7 @@ def test_rewrite_current_room_ac_script_keeps_all_room_targets():
             "set_multiple_ac_hvac_mode",
             arguments,
             active_context,
+            "climate.any_guest_bedroom_ac",
         )
         == arguments
     )
@@ -414,6 +516,7 @@ def test_rewrite_current_room_ac_context_query_entity_target_from_active_context
         "GetLiveContext",
         {"name": "climate.vrf_livingroom"},
         active_context,
+        "climate.any_guest_bedroom_ac",
     ) == {
         "name": "次卧空调",
         "area": "次卧",
@@ -438,6 +541,7 @@ def test_rewrite_current_room_ac_context_query_keeps_explicit_room_target():
             "GetLiveContext",
             arguments,
             active_context,
+            "climate.any_guest_bedroom_ac",
         )
         == arguments
     )

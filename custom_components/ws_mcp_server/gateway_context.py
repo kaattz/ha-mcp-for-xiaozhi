@@ -12,6 +12,21 @@ ENTITY_TARGET_KEYS = {"entity_id", "entity_ids"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 DEFAULT_GATEWAY_PORT = 8125
+CONF_AC_CONTROL_MODE = "ac_control_mode"
+CONF_AC_TURN_ON_HVAC_MODE = "ac_turn_on_hvac_mode"
+CONF_AC_CUSTOM_TOOL_NAME = "ac_custom_tool_name"
+CONF_AC_CUSTOM_ENTITY_FIELD = "ac_custom_entity_field"
+CONF_AC_CUSTOM_MODE_FIELD = "ac_custom_mode_field"
+CONF_AC_CUSTOM_ENTITY_FORMAT = "ac_custom_entity_format"
+AC_CONTROL_MODE_NATIVE = "native"
+AC_CONTROL_MODE_CUSTOM = "custom"
+AC_ENTITY_FORMAT_STRING_LIST = "string_list"
+AC_ENTITY_FORMAT_LIST = "list"
+AC_ENTITY_FORMAT_STRING = "string"
+DEFAULT_AC_TURN_ON_HVAC_MODE = "cool"
+DEFAULT_AC_CUSTOM_ENTITY_FIELD = "entity_ids"
+DEFAULT_AC_CUSTOM_MODE_FIELD = "hvac_mode"
+DEFAULT_AC_CUSTOM_ENTITY_FORMAT = AC_ENTITY_FORMAT_STRING_LIST
 GENERIC_AREA_TARGET_DOMAINS = {
     "空调": "climate",
     "地暖": "climate",
@@ -20,22 +35,9 @@ GENERIC_AREA_TARGET_DOMAINS = {
     "纱帘": "cover",
     "百叶帘": "cover",
 }
-AC_ENTITY_BY_ROOM_KEY = {
-    "livingroom": "climate.vrf_livingroom",
-    "living_room": "climate.vrf_livingroom",
-    "ke_ting": "climate.vrf_livingroom",
-    "客厅": "climate.vrf_livingroom",
-    "diningroom": "climate.vrf_diningroom",
-    "dining_room": "climate.vrf_diningroom",
-    "can_ting": "climate.vrf_diningroom",
-    "餐厅": "climate.vrf_diningroom",
-    "master_bedroom": "climate.vrf_master_bedroom",
-    "zhu_wo": "climate.vrf_master_bedroom",
-    "主卧": "climate.vrf_master_bedroom",
-    "guest_bedroom": "climate.vrf_guest_bedroom",
-    "ci_wo": "climate.vrf_guest_bedroom",
-    "次卧": "climate.vrf_guest_bedroom",
-    "客卧": "climate.vrf_guest_bedroom",
+AC_TURN_TOOL_HVAC_MODES = {
+    "HassTurnOn": DEFAULT_AC_TURN_ON_HVAC_MODE,
+    "HassTurnOff": "off",
 }
 GATEWAY_ROOM_PROMPT = (
     "Xiaozhi gateway room context is enabled. When the user does not explicitly "
@@ -51,8 +53,12 @@ GATEWAY_ROOM_PROMPT = (
     "room or area, preserve that explicit target. For entity_id/entity_ids "
     "tools, include area or room metadata when the user explicitly named a room "
     "or area. If the user did not name a room or area, do not assume a fixed "
-    "room; the MCP server will resolve supported current-room AC scripts from "
-    "the active Xiaozhi room context."
+    "room; the MCP server will resolve supported current-room AC requests from "
+    "the active Xiaozhi room context. For air conditioner turn-on or turn-off "
+    "requests, pass the target as a normal Home Assistant intent tool call with "
+    "name, area when known, and domain='climate'; the MCP server will call "
+    "Home Assistant's native climate.set_hvac_mode service so turning on an air "
+    "conditioner means cooling, not Home Assistant's previous climate mode."
 )
 
 
@@ -228,6 +234,73 @@ def normalize_area_scoped_name_target(
     return rewritten_arguments
 
 
+def is_ac_climate_turn_request(tool_name: str, arguments: dict[str, Any]) -> bool:
+    if _ac_turn_hvac_mode(tool_name) is None:
+        return False
+    if not _domain_matches(arguments.get("domain"), "climate"):
+        return False
+    return _looks_like_air_conditioner_name(arguments.get("name"))
+
+
+def ac_climate_turn_hvac_mode(
+    tool_name: str,
+    arguments: dict[str, Any],
+    config: dict[str, Any] | None = None,
+) -> str | None:
+    if not is_ac_climate_turn_request(tool_name, arguments):
+        return None
+    hvac_mode = _ac_turn_hvac_mode(tool_name)
+    if tool_name.rsplit("__", 1)[-1] != "HassTurnOn":
+        return hvac_mode
+    return _non_empty_config_value(
+        config or {},
+        CONF_AC_TURN_ON_HVAC_MODE,
+        hvac_mode or DEFAULT_AC_TURN_ON_HVAC_MODE,
+    )
+
+
+def is_custom_ac_control_enabled(config: dict[str, Any] | None) -> bool:
+    return (config or {}).get(CONF_AC_CONTROL_MODE) == AC_CONTROL_MODE_CUSTOM
+
+
+def build_ac_custom_control_tool_call(
+    config: dict[str, Any] | None,
+    entity_id: str,
+    hvac_mode: str,
+    _area: str | None,
+) -> tuple[str, dict[str, Any]] | None:
+    config = config or {}
+    if not is_custom_ac_control_enabled(config):
+        return None
+
+    tool_name = _non_empty_config_value(config, CONF_AC_CUSTOM_TOOL_NAME, "")
+    entity_field = _non_empty_config_value(
+        config,
+        CONF_AC_CUSTOM_ENTITY_FIELD,
+        DEFAULT_AC_CUSTOM_ENTITY_FIELD,
+    )
+    mode_field = _non_empty_config_value(
+        config,
+        CONF_AC_CUSTOM_MODE_FIELD,
+        DEFAULT_AC_CUSTOM_MODE_FIELD,
+    )
+    if not tool_name or not entity_field or not mode_field:
+        return None
+
+    arguments: dict[str, Any] = {
+        entity_field: _format_ac_custom_entity_value(
+            entity_id,
+            _non_empty_config_value(
+                config,
+                CONF_AC_CUSTOM_ENTITY_FORMAT,
+                DEFAULT_AC_CUSTOM_ENTITY_FORMAT,
+            ),
+        ),
+        mode_field: hvac_mode,
+    }
+    return tool_name, arguments
+
+
 def _domain_matches(value: Any, expected_domain: str) -> bool:
     if value is None:
         return True
@@ -252,6 +325,34 @@ def _find_longest_area_name_prefix(
         if normalized_name.startswith(area_name) and normalized_name != area_name:
             return area_name
     return None
+
+
+def _ac_turn_hvac_mode(tool_name: str) -> str | None:
+    return AC_TURN_TOOL_HVAC_MODES.get(tool_name.rsplit("__", 1)[-1])
+
+
+def _non_empty_config_value(
+    config: dict[str, Any],
+    key: str,
+    default: str,
+) -> str:
+    value = config.get(key, default)
+    if not isinstance(value, str):
+        return default
+    normalized_value = value.strip()
+    return normalized_value or default
+
+
+def _format_ac_custom_entity_value(entity_id: str, entity_format: str) -> Any:
+    if entity_format == AC_ENTITY_FORMAT_LIST:
+        return [entity_id]
+    if entity_format == AC_ENTITY_FORMAT_STRING:
+        return entity_id
+    return f"['{entity_id}']"
+
+
+def _looks_like_air_conditioner_name(value: Any) -> bool:
+    return isinstance(value, str) and "空调" in value.strip()
 
 
 def has_direct_entity_target(arguments: dict[str, Any]) -> bool:
@@ -293,12 +394,17 @@ def rewrite_current_room_ac_entity_targets(
     tool_name: str,
     arguments: dict[str, Any],
     active_context: ActiveGatewayContext,
+    current_room_ac_entity_id: str | None,
 ) -> dict[str, Any]:
     if has_explicit_room_or_area(arguments):
         return arguments
 
     if _is_ac_context_query_tool(tool_name):
-        return _rewrite_current_room_ac_context_query_target(arguments, active_context)
+        return _rewrite_current_room_ac_context_query_target(
+            arguments,
+            active_context,
+            current_room_ac_entity_id,
+        )
 
     if not _is_ac_script_tool(tool_name):
         return arguments
@@ -307,14 +413,13 @@ def rewrite_current_room_ac_entity_targets(
     if not _has_single_ac_entity_target(entity_ids):
         return arguments
 
-    current_room_entity_id = _ac_entity_for_active_context(active_context)
-    if current_room_entity_id is None:
+    if current_room_ac_entity_id is None:
         return arguments
 
     rewritten_arguments = dict(arguments)
     rewritten_arguments["entity_ids"] = _format_entity_ids_like_input(
         entity_ids,
-        current_room_entity_id,
+        current_room_ac_entity_id,
     )
     return rewritten_arguments
 
@@ -322,12 +427,12 @@ def rewrite_current_room_ac_entity_targets(
 def _rewrite_current_room_ac_context_query_target(
     arguments: dict[str, Any],
     active_context: ActiveGatewayContext,
+    current_room_ac_entity_id: str | None,
 ) -> dict[str, Any]:
     if not _has_single_direct_ac_entity_target(arguments):
         return arguments
 
-    current_room_entity_id = _ac_entity_for_active_context(active_context)
-    if current_room_entity_id is None:
+    if current_room_ac_entity_id is None:
         return arguments
 
     rewritten_arguments = {
@@ -358,30 +463,16 @@ def _has_single_direct_ac_entity_target(arguments: dict[str, Any]) -> bool:
 
 def _has_single_ac_entity_target(entity_ids: Any) -> bool:
     if isinstance(entity_ids, str):
-        return len(re.findall(r"climate\.vrf_[a-z0-9_]+", entity_ids)) == 1
+        return len(re.findall(r"climate\.[a-z0-9_]+", entity_ids)) == 1
     if isinstance(entity_ids, list):
-        return len(entity_ids) == 1 and _looks_like_ac_entity_id(entity_ids[0])
+        return len(entity_ids) == 1 and _looks_like_climate_entity_id(entity_ids[0])
     return False
 
 
-def _looks_like_ac_entity_id(value: Any) -> bool:
+def _looks_like_climate_entity_id(value: Any) -> bool:
     return isinstance(value, str) and bool(
-        re.fullmatch(r"climate\.vrf_[a-z0-9_]+", value.strip())
+        re.fullmatch(r"climate\.[a-z0-9_]+", value.strip())
     )
-
-
-def _ac_entity_for_active_context(
-    active_context: ActiveGatewayContext,
-) -> str | None:
-    for room_key in (
-        active_context.room_id,
-        active_context.ha_area_id,
-        active_context.room_name,
-    ):
-        entity_id = AC_ENTITY_BY_ROOM_KEY.get(room_key)
-        if entity_id:
-            return entity_id
-    return None
 
 
 def _format_entity_ids_like_input(entity_ids: Any, entity_id: str) -> Any:

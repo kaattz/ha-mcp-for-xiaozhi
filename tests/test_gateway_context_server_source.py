@@ -26,3 +26,21 @@ def test_server_injects_explicit_area_from_ha_area_registry():
     assert "area_registry" in server_source
     assert "inject_area_from_name_prefix" in server_source
     assert "_area_names(hass)" in server_source
+
+
+def test_server_uses_native_climate_service_for_ac_turn_requests():
+    server_source = (COMPONENT_PATH / "server.py").read_text(encoding="utf-8")
+
+    assert "hass.services.async_call" in server_source
+    assert '"set_hvac_mode"' in server_source
+    assert "set_multiple_ac_hvac_mode" not in server_source
+
+
+def test_websocket_transport_passes_config_entry_data_to_server():
+    transport_source = (COMPONENT_PATH / "websocket_transport.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "create_server(hass, llm_api_id, context, gateway_url, entry.data)" in (
+        transport_source
+    )
