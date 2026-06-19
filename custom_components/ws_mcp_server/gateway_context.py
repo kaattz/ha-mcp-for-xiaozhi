@@ -12,6 +12,14 @@ ENTITY_TARGET_KEYS = {"entity_id", "entity_ids"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 DEFAULT_GATEWAY_PORT = 8125
+GENERIC_AREA_TARGET_DOMAINS = {
+    "空调": "climate",
+    "地暖": "climate",
+    "浴霸": "climate",
+    "窗帘": "cover",
+    "纱帘": "cover",
+    "百叶帘": "cover",
+}
 AC_ENTITY_BY_ROOM_KEY = {
     "livingroom": "climate.vrf_livingroom",
     "living_room": "climate.vrf_livingroom",
@@ -157,6 +165,41 @@ def inject_area_from_name_prefix(
     rewritten_arguments = dict(arguments)
     rewritten_arguments["area"] = area_name
     return rewritten_arguments
+
+
+def normalize_generic_area_target(arguments: dict[str, Any]) -> dict[str, Any]:
+    name = arguments.get("name")
+    area = arguments.get("area")
+    if not isinstance(name, str) or not isinstance(area, str):
+        return arguments
+
+    normalized_name = name.strip()
+    normalized_area = area.strip()
+    if not normalized_name or not normalized_area:
+        return arguments
+
+    domain = GENERIC_AREA_TARGET_DOMAINS.get(normalized_name)
+    if domain is None:
+        return arguments
+
+    if not _domain_matches(arguments.get("domain"), domain):
+        return arguments
+
+    rewritten_arguments = dict(arguments)
+    rewritten_arguments["name"] = f"{normalized_area}{normalized_name}"
+    if not arguments.get("domain") or isinstance(arguments.get("domain"), str):
+        rewritten_arguments["domain"] = [domain]
+    return rewritten_arguments
+
+
+def _domain_matches(value: Any, expected_domain: str) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value == expected_domain
+    if isinstance(value, list):
+        return expected_domain in value
+    return False
 
 
 def _find_longest_area_name_prefix(

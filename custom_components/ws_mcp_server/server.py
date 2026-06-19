@@ -34,6 +34,7 @@ from .gateway_context import (
     has_explicit_room_or_area,
     inject_area_from_name_prefix,
     is_gateway_context_enabled,
+    normalize_generic_area_target,
     normalize_gateway_url,
     parse_active_context,
     rewrite_current_room_ac_entity_targets,
@@ -183,6 +184,7 @@ async def create_server(
         if is_gateway_context_enabled(gateway_url):
             if should_inject_preferred_area_id(name, False):
                 arguments = inject_area_from_name_prefix(arguments, _area_names(hass))
+            arguments = normalize_generic_area_target(arguments)
 
             if has_direct_entity_target(arguments):
                 if not has_explicit_room_or_area(arguments):

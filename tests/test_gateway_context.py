@@ -20,6 +20,7 @@ GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
 inject_area_from_name_prefix = gateway_context.inject_area_from_name_prefix
+normalize_generic_area_target = gateway_context.normalize_generic_area_target
 has_explicit_room_or_area = gateway_context.has_explicit_room_or_area
 has_direct_entity_target = gateway_context.has_direct_entity_target
 has_explicit_tool_target = gateway_context.has_explicit_tool_target
@@ -183,6 +184,36 @@ def test_inject_area_from_name_prefix_ignores_generic_name():
     arguments = {"name": "吊灯", "domain": ["light"]}
 
     assert inject_area_from_name_prefix(arguments, ["餐厅"]) == arguments
+
+
+def test_normalize_generic_area_target_expands_area_scoped_ac_name():
+    assert normalize_generic_area_target({"name": "空调", "area": "客厅"}) == {
+        "name": "客厅空调",
+        "area": "客厅",
+        "domain": ["climate"],
+    }
+
+
+def test_normalize_generic_area_target_keeps_full_target_name():
+    arguments = {"name": "客厅空调", "area": "客厅", "domain": ["climate"]}
+
+    assert normalize_generic_area_target(arguments) == arguments
+
+
+def test_normalize_generic_area_target_normalizes_matching_domain_string():
+    assert normalize_generic_area_target(
+        {"name": "空调", "area": "客厅", "domain": "climate"}
+    ) == {
+        "name": "客厅空调",
+        "area": "客厅",
+        "domain": ["climate"],
+    }
+
+
+def test_normalize_generic_area_target_keeps_conflicting_domain():
+    arguments = {"name": "空调", "area": "客厅", "domain": ["light"]}
+
+    assert normalize_generic_area_target(arguments) == arguments
 
 
 def test_build_context_payload_injects_room_when_model_guesses_entity_id_without_room():
