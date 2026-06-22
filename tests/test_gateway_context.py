@@ -30,7 +30,9 @@ normalize_gateway_url = gateway_context.normalize_gateway_url
 parse_active_context = gateway_context.parse_active_context
 ac_climate_turn_hvac_mode = gateway_context.ac_climate_turn_hvac_mode
 build_ac_custom_control_tool_call = gateway_context.build_ac_custom_control_tool_call
+climate_device_type_from_name = gateway_context.climate_device_type_from_name
 is_ac_climate_turn_request = gateway_context.is_ac_climate_turn_request
+is_all_air_conditioner_request = gateway_context.is_all_air_conditioner_request
 is_custom_ac_control_enabled = gateway_context.is_custom_ac_control_enabled
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
 should_fetch_gateway_context = gateway_context.should_fetch_gateway_context
@@ -259,6 +261,60 @@ def test_detects_ac_climate_turn_request():
     )
 
 
+@pytest.mark.parametrize(
+    ("entity_name", "device_type"),
+    [
+        ("客厅空调", "air_conditioner"),
+        ("次卧地暖", "floor_heating"),
+        ("主卫浴霸", "bathroom_heater"),
+        ("林内冷凝炉 采暖控制", "heating_boiler"),
+        ("燃气锅炉", "heating_boiler"),
+        ("采暖炉", "heating_boiler"),
+    ],
+)
+def test_classifies_climate_entity_names_by_device_semantics(
+    entity_name,
+    device_type,
+):
+    assert climate_device_type_from_name(entity_name) == device_type
+
+
+def test_all_air_conditioner_request_requires_explicit_all_word():
+    assert is_all_air_conditioner_request({"name": "所有空调", "domain": ["climate"]})
+    assert is_all_air_conditioner_request({"name": "全屋空调", "domain": ["climate"]})
+    assert not is_all_air_conditioner_request({"name": "空调", "domain": ["climate"]})
+    assert not is_all_air_conditioner_request({"domain": ["climate"]})
+
+
+def test_floor_heating_and_boiler_are_not_ac_turn_requests():
+    for name in ("所有地暖", "主卫浴霸", "林内冷凝炉 采暖控制"):
+        assert not is_ac_climate_turn_request(
+            "HassTurnOff",
+            {"name": name, "domain": ["climate"]},
+        )
+
+
+def test_detects_domain_only_climate_turn_request_as_current_room_ac():
+    assert is_ac_climate_turn_request(
+        "HassTurnOff",
+        {"domain": ["climate"]},
+    )
+    assert (
+        ac_climate_turn_hvac_mode(
+            "HassTurnOff",
+            {"domain": ["climate"]},
+        )
+        == "off"
+    )
+
+
+def test_does_not_detect_domain_only_light_turn_request_as_ac():
+    assert not is_ac_climate_turn_request(
+        "HassTurnOff",
+        {"domain": ["light"]},
+    )
+
+
 def test_ac_climate_turn_on_uses_cool_mode():
     assert (
         ac_climate_turn_hvac_mode(
@@ -333,6 +389,24 @@ def test_build_ac_custom_control_tool_call_supports_list_entity_format():
         "my_ac_hvac_mode",
         {
             "entity_ids": ["climate.any_master_bedroom_ac"],
+            "hvac_mode": "off",
+        },
+    )
+
+
+def test_build_ac_custom_control_tool_call_supports_multiple_entities():
+    assert build_ac_custom_control_tool_call(
+        {
+            "ac_control_mode": "custom",
+            "ac_custom_tool_name": "my_ac_hvac_mode",
+        },
+        ["climate.livingroom_ac", "climate.master_bedroom_ac"],
+        "off",
+        None,
+    ) == (
+        "my_ac_hvac_mode",
+        {
+            "entity_ids": "['climate.livingroom_ac','climate.master_bedroom_ac']",
             "hvac_mode": "off",
         },
     )

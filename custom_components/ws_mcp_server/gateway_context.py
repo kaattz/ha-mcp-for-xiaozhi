@@ -27,6 +27,20 @@ DEFAULT_AC_TURN_ON_HVAC_MODE = "cool"
 DEFAULT_AC_CUSTOM_ENTITY_FIELD = "entity_ids"
 DEFAULT_AC_CUSTOM_MODE_FIELD = "hvac_mode"
 DEFAULT_AC_CUSTOM_ENTITY_FORMAT = AC_ENTITY_FORMAT_STRING_LIST
+CLIMATE_DEVICE_AIR_CONDITIONER = "air_conditioner"
+CLIMATE_DEVICE_FLOOR_HEATING = "floor_heating"
+CLIMATE_DEVICE_BATHROOM_HEATER = "bathroom_heater"
+CLIMATE_DEVICE_HEATING_BOILER = "heating_boiler"
+CLIMATE_DEVICE_KEYWORDS = (
+    (
+        CLIMATE_DEVICE_HEATING_BOILER,
+        ("采暖炉", "锅炉", "采暖控制", "冷凝炉"),
+    ),
+    (CLIMATE_DEVICE_FLOOR_HEATING, ("地暖",)),
+    (CLIMATE_DEVICE_BATHROOM_HEATER, ("浴霸",)),
+    (CLIMATE_DEVICE_AIR_CONDITIONER, ("空调",)),
+)
+ALL_TARGET_WORDS = ("所有", "全部", "全屋")
 GENERIC_AREA_TARGET_DOMAINS = {
     "空调": "climate",
     "地暖": "climate",
@@ -56,7 +70,13 @@ GATEWAY_ROOM_PROMPT = (
     "room; the MCP server will resolve supported current-room AC requests from "
     "the active Xiaozhi room context. For air conditioner turn-on or turn-off "
     "requests, pass the target as a normal Home Assistant intent tool call with "
-    "name, area when known, and domain='climate'; the MCP server will call "
+    "name='空调', area when known, and domain='climate'; do not pass only "
+    "domain='climate'. If only domain='climate' is passed to a climate turn "
+    "tool, the MCP server treats it as a current-room air conditioner request, "
+    "not a whole-home climate request. Air conditioners, floor heating, bathroom "
+    "heaters, and boilers/heating controls are separate device categories even "
+    "when Home Assistant exposes them all as climate entities. The MCP server "
+    "will call "
     "Home Assistant's native climate.set_hvac_mode service so turning on an air "
     "conditioner means cooling, not Home Assistant's previous climate mode."
 )
@@ -239,7 +259,32 @@ def is_ac_climate_turn_request(tool_name: str, arguments: dict[str, Any]) -> boo
         return False
     if not _domain_matches(arguments.get("domain"), "climate"):
         return False
-    return _looks_like_air_conditioner_name(arguments.get("name"))
+    name = arguments.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return not has_direct_entity_target(arguments)
+    return climate_device_type_from_name(name) == CLIMATE_DEVICE_AIR_CONDITIONER
+
+
+def climate_device_type_from_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized_value = value.strip()
+    if not normalized_value:
+        return None
+    for device_type, keywords in CLIMATE_DEVICE_KEYWORDS:
+        if any(keyword in normalized_value for keyword in keywords):
+            return device_type
+    return None
+
+
+def is_all_air_conditioner_request(arguments: dict[str, Any]) -> bool:
+    name = arguments.get("name")
+    if (
+        not isinstance(name, str)
+        or climate_device_type_from_name(name) != CLIMATE_DEVICE_AIR_CONDITIONER
+    ):
+        return False
+    return any(word in name for word in ALL_TARGET_WORDS)
 
 
 def ac_climate_turn_hvac_mode(
@@ -265,7 +310,7 @@ def is_custom_ac_control_enabled(config: dict[str, Any] | None) -> bool:
 
 def build_ac_custom_control_tool_call(
     config: dict[str, Any] | None,
-    entity_id: str,
+    entity_id: str | list[str],
     hvac_mode: str,
     _area: str | None,
 ) -> tuple[str, dict[str, Any]] | None:
@@ -343,16 +388,13 @@ def _non_empty_config_value(
     return normalized_value or default
 
 
-def _format_ac_custom_entity_value(entity_id: str, entity_format: str) -> Any:
+def _format_ac_custom_entity_value(entity_id: str | list[str], entity_format: str) -> Any:
+    entity_ids = [entity_id] if isinstance(entity_id, str) else entity_id
     if entity_format == AC_ENTITY_FORMAT_LIST:
-        return [entity_id]
+        return entity_ids
     if entity_format == AC_ENTITY_FORMAT_STRING:
-        return entity_id
-    return f"['{entity_id}']"
-
-
-def _looks_like_air_conditioner_name(value: Any) -> bool:
-    return isinstance(value, str) and "空调" in value.strip()
+        return entity_ids[0] if len(entity_ids) == 1 else ",".join(entity_ids)
+    return "[" + ",".join(f"'{item}'" for item in entity_ids) + "]"
 
 
 def has_direct_entity_target(arguments: dict[str, Any]) -> bool:

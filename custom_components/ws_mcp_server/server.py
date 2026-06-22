@@ -34,10 +34,13 @@ from .gateway_context import (
     build_ac_custom_control_tool_call,
     build_context_payload,
     build_gateway_room_prompt,
+    climate_device_type_from_name,
+    CLIMATE_DEVICE_AIR_CONDITIONER,
     has_direct_entity_target,
     has_explicit_room_or_area,
     inject_area_from_name_prefix,
     is_ac_climate_turn_request,
+    is_all_air_conditioner_request,
     is_custom_ac_control_enabled,
     is_gateway_context_enabled,
     normalize_area_scoped_name_target,
@@ -203,7 +206,16 @@ async def create_server(
             )
             if is_ac_climate_turn_request(name, arguments):
                 domains = _domain_names(arguments) or ["climate"]
-                if has_explicit_room_or_area(arguments):
+                if is_all_air_conditioner_request(arguments) and has_explicit_room_or_area(
+                    arguments
+                ):
+                    entity_id = _area_air_conditioner_entity_ids(
+                        hass,
+                        arguments.get("area"),
+                    )
+                elif is_all_air_conditioner_request(arguments):
+                    entity_id = _all_air_conditioner_entity_ids(hass)
+                elif has_explicit_room_or_area(arguments):
                     entity_id = _single_named_area_entity_id(
                         hass,
                         arguments.get("area"),
@@ -244,7 +256,7 @@ async def create_server(
                     arguments,
                     ac_control_config,
                 )
-                if entity_id is None or hvac_mode is None:
+                if not entity_id or hvac_mode is None:
                     return _json_response(
                         {
                             "status": "ac_target_unresolved",
@@ -484,7 +496,7 @@ def _json_response(payload: dict[str, Any]) -> list[types.TextContent]:
 
 async def _async_set_climate_hvac_mode(
     hass: HomeAssistant,
-    entity_id: str,
+    entity_id: str | list[str],
     hvac_mode: str,
 ) -> None:
     await hass.services.async_call(
@@ -577,10 +589,29 @@ def _single_area_air_conditioner_entity_id(
     if len(exact_matches) == 1:
         return exact_matches[0]
 
-    ac_matches = [state.entity_id for state in states if "空调" in state.name]
+    ac_matches = _area_air_conditioner_entity_ids(hass, area.id)
     if len(ac_matches) != 1:
         return None
     return ac_matches[0]
+
+
+def _area_air_conditioner_entity_ids(
+    hass: HomeAssistant,
+    area_name: Any,
+) -> list[str]:
+    return [
+        state.entity_id
+        for state in _area_entity_states(hass, area_name, ["climate"])
+        if climate_device_type_from_name(state.name) == CLIMATE_DEVICE_AIR_CONDITIONER
+    ]
+
+
+def _all_air_conditioner_entity_ids(hass: HomeAssistant) -> list[str]:
+    return [
+        state.entity_id
+        for state in hass.states.async_all("climate")
+        if climate_device_type_from_name(state.name) == CLIMATE_DEVICE_AIR_CONDITIONER
+    ]
 
 
 def _area_entity_states(
