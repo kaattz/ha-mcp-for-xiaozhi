@@ -46,6 +46,8 @@ CLIMATE_DEVICE_KEYWORDS = (
 ALL_TARGET_WORDS = ("所有", "全部", "全屋")
 PHONETIC_MATCH_MIN_SCORE = 0.78
 PHONETIC_MATCH_MIN_GAP = 0.15
+POSITION_MATCH_BONUS = 0.18
+POSITION_MISMATCH_PENALTY = 0.18
 NEAR_INITIAL_GROUPS = (
     frozenset(("s", "sh")),
     frozenset(("z", "zh")),
@@ -59,6 +61,10 @@ NEAR_FINAL_GROUPS = (
     frozenset(("en", "eng")),
     frozenset(("in", "ing")),
 )
+POSITION_TOKEN_GROUPS = {
+    "左": frozenset(("左", "佐", "坐", "做", "走")),
+    "右": frozenset(("右", "又", "有", "幼")),
+}
 GENERIC_AREA_TARGET_DOMAINS = {
     "空调": "climate",
     "地暖": "climate",
@@ -397,10 +403,14 @@ def _unique_phonetic_area_match(
     scored_matches = sorted(
         (
             (
-                max(
-                    _phonetic_phrase_similarity(target_variant, candidate_variant)
-                    for target_variant in target_variants
-                    for candidate_variant in variants
+                _adjust_phonetic_score_for_position(
+                    max(
+                        _phonetic_phrase_similarity(target_variant, candidate_variant)
+                        for target_variant in target_variants
+                        for candidate_variant in variants
+                    ),
+                    target_variants,
+                    variants,
                 ),
                 candidate,
             )
@@ -419,6 +429,45 @@ def _unique_phonetic_area_match(
     ):
         return None
     return top_candidate
+
+
+def _adjust_phonetic_score_for_position(
+    score: float,
+    target_variants: set[str],
+    candidate_variants: set[str],
+) -> float:
+    target_position = _position_token_for_variants(target_variants)
+    if target_position is None:
+        return score
+
+    candidate_position = _position_token_for_variants(candidate_variants)
+    if candidate_position == target_position:
+        return min(1.0, score + POSITION_MATCH_BONUS)
+    if candidate_position is not None:
+        return max(0.0, score - POSITION_MISMATCH_PENALTY)
+    return score
+
+
+def _position_token_for_variants(variants: set[str]) -> str | None:
+    positions = {
+        position
+        for variant in variants
+        if (position := _position_token(variant)) is not None
+    }
+    if len(positions) != 1:
+        return None
+    return positions.pop()
+
+
+def _position_token(value: str) -> str | None:
+    positions = {
+        position
+        for position, tokens in POSITION_TOKEN_GROUPS.items()
+        if any(token in value for token in tokens)
+    }
+    if len(positions) != 1:
+        return None
+    return positions.pop()
 
 
 def _target_is_literal_candidate_part(

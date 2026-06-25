@@ -273,6 +273,25 @@ def test_normalize_area_scoped_name_target_keeps_ambiguous_phonetic_candidate():
     )
 
 
+def test_normalize_area_scoped_name_target_uses_positional_phonetic_candidate():
+    assert normalize_area_scoped_name_target(
+        {"name": "走臂灯", "area": "主卧", "domain": ["light"]},
+        ["主卧右壁灯", "主卧左壁灯"],
+    ) == {"name": "主卧左壁灯", "area": "主卧", "domain": ["light"]}
+
+
+def test_normalize_area_scoped_name_target_keeps_missing_position_phonetic_candidate():
+    arguments = {"name": "手臂灯", "area": "主卧", "domain": ["light"]}
+
+    assert (
+        normalize_area_scoped_name_target(
+            arguments,
+            ["主卧右壁灯", "主卧左壁灯"],
+        )
+        == arguments
+    )
+
+
 def test_detects_ac_climate_turn_request():
     assert is_ac_climate_turn_request(
         "HassTurnOn",
