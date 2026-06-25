@@ -44,3 +44,10 @@ def test_websocket_transport_passes_config_entry_data_to_server():
     assert "create_server(hass, llm_api_id, context, gateway_url, entry.data)" in (
         transport_source
     )
+
+
+def test_server_includes_entity_aliases_in_area_name_candidates():
+    server_source = (COMPONENT_PATH / "server.py").read_text(encoding="utf-8")
+
+    assert "aliases" in server_source
+    assert "area_entity_names" in server_source

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from difflib import SequenceMatcher
 from typing import Any
+
+from pypinyin import Style, lazy_pinyin
 
 
 ROOM_OR_AREA_KEYS = {"room", "room_id", "area", "area_id"}
@@ -41,6 +44,21 @@ CLIMATE_DEVICE_KEYWORDS = (
     (CLIMATE_DEVICE_AIR_CONDITIONER, ("空调",)),
 )
 ALL_TARGET_WORDS = ("所有", "全部", "全屋")
+PHONETIC_MATCH_MIN_SCORE = 0.78
+PHONETIC_MATCH_MIN_GAP = 0.15
+NEAR_INITIAL_GROUPS = (
+    frozenset(("s", "sh")),
+    frozenset(("z", "zh")),
+    frozenset(("c", "ch")),
+    frozenset(("l", "n")),
+    frozenset(("f", "h")),
+    frozenset(("r", "l")),
+)
+NEAR_FINAL_GROUPS = (
+    frozenset(("an", "ang")),
+    frozenset(("en", "eng")),
+    frozenset(("in", "ing")),
+)
 GENERIC_AREA_TARGET_DOMAINS = {
     "空调": "climate",
     "地暖": "climate",
@@ -246,11 +264,18 @@ def normalize_area_scoped_name_target(
         for entity_name in normalized_candidates
         if entity_name == prefixed_name
     ]
+    matched_name = matches[0] if len(matches) == 1 else None
     if len(matches) != 1:
-        return arguments
+        matched_name = _unique_phonetic_area_match(
+            normalized_name,
+            normalized_area,
+            normalized_candidates,
+        )
+        if matched_name is None:
+            return arguments
 
     rewritten_arguments = dict(arguments)
-    rewritten_arguments["name"] = matches[0]
+    rewritten_arguments["name"] = matched_name
     return rewritten_arguments
 
 
@@ -354,6 +379,162 @@ def _domain_matches(value: Any, expected_domain: str) -> bool:
     if isinstance(value, list):
         return expected_domain in value
     return False
+
+
+def _unique_phonetic_area_match(
+    name: str,
+    area: str,
+    candidates: set[str],
+) -> str | None:
+    target_variants = _name_variants_without_area(name, area)
+    candidate_variants = {
+        candidate: _name_variants_without_area(candidate, area)
+        for candidate in candidates
+    }
+    if _target_is_literal_candidate_part(target_variants, candidate_variants):
+        return None
+
+    scored_matches = sorted(
+        (
+            (
+                max(
+                    _phonetic_phrase_similarity(target_variant, candidate_variant)
+                    for target_variant in target_variants
+                    for candidate_variant in variants
+                ),
+                candidate,
+            )
+            for candidate, variants in candidate_variants.items()
+        ),
+        reverse=True,
+    )
+    if not scored_matches:
+        return None
+
+    top_score, top_candidate = scored_matches[0]
+    second_score = scored_matches[1][0] if len(scored_matches) > 1 else 0.0
+    if (
+        top_score < PHONETIC_MATCH_MIN_SCORE
+        or top_score - second_score < PHONETIC_MATCH_MIN_GAP
+    ):
+        return None
+    return top_candidate
+
+
+def _target_is_literal_candidate_part(
+    target_variants: set[str],
+    candidate_variants: dict[str, set[str]],
+) -> bool:
+    for target_variant in target_variants:
+        if not target_variant:
+            continue
+        for variants in candidate_variants.values():
+            for candidate_variant in variants:
+                if (
+                    target_variant != candidate_variant
+                    and target_variant in candidate_variant
+                ):
+                    return True
+    return False
+
+
+def _name_variants_without_area(name: str, area: str) -> set[str]:
+    variants = {_normalize_phonetic_text(name)}
+    normalized_area = _normalize_phonetic_text(area)
+    for variant in tuple(variants):
+        if normalized_area and variant.startswith(normalized_area):
+            stripped_variant = variant[len(normalized_area) :]
+            if stripped_variant:
+                variants.add(stripped_variant)
+    return {variant for variant in variants if variant}
+
+
+def _normalize_phonetic_text(value: str) -> str:
+    return re.sub(r"\s+", "", value.strip())
+
+
+def _phonetic_phrase_similarity(left: str, right: str) -> float:
+    left_syllables = _pinyin_syllables(left)
+    right_syllables = _pinyin_syllables(right)
+    if not left_syllables or not right_syllables:
+        return 0.0
+
+    matcher = SequenceMatcher(a=left_syllables, b=right_syllables, autojunk=False)
+    matched_score = 0.0
+    for block in matcher.get_matching_blocks():
+        matched_score += block.size
+
+    matched_positions_left = set()
+    matched_positions_right = set()
+    for block in matcher.get_matching_blocks():
+        for offset in range(block.size):
+            matched_positions_left.add(block.a + offset)
+            matched_positions_right.add(block.b + offset)
+
+    unmatched_left = [
+        syllable
+        for index, syllable in enumerate(left_syllables)
+        if index not in matched_positions_left
+    ]
+    unmatched_right = [
+        syllable
+        for index, syllable in enumerate(right_syllables)
+        if index not in matched_positions_right
+    ]
+    for left_syllable, right_syllable in zip(unmatched_left, unmatched_right):
+        matched_score += _pinyin_syllable_similarity(left_syllable, right_syllable)
+
+    return matched_score / max(len(left_syllables), len(right_syllables))
+
+
+def _pinyin_syllables(value: str) -> list[tuple[str, str, str]]:
+    normalized_value = _normalize_phonetic_text(value)
+    syllables = lazy_pinyin(normalized_value, style=Style.NORMAL, errors="ignore")
+    initials = lazy_pinyin(
+        normalized_value,
+        style=Style.INITIALS,
+        strict=False,
+        errors="ignore",
+    )
+    finals = lazy_pinyin(
+        normalized_value,
+        style=Style.FINALS,
+        strict=False,
+        errors="ignore",
+    )
+    return [
+        (syllable, initial, final)
+        for syllable, initial, final in zip(syllables, initials, finals)
+        if syllable
+    ]
+
+
+def _pinyin_syllable_similarity(
+    left: tuple[str, str, str],
+    right: tuple[str, str, str],
+) -> float:
+    if left[0] == right[0]:
+        return 1.0
+
+    initial_score = _phonetic_part_similarity(
+        left[1],
+        right[1],
+        NEAR_INITIAL_GROUPS,
+    )
+    final_score = _phonetic_part_similarity(left[2], right[2], NEAR_FINAL_GROUPS)
+    return 0.45 * initial_score + 0.55 * final_score
+
+
+def _phonetic_part_similarity(
+    left: str,
+    right: str,
+    near_groups: tuple[frozenset[str], ...],
+) -> float:
+    if left == right:
+        return 1.0
+    if any(left in group and right in group for group in near_groups):
+        return 0.85
+    return SequenceMatcher(a=left, b=right, autojunk=False).ratio() * 0.65
 
 
 def _find_longest_area_name_prefix(

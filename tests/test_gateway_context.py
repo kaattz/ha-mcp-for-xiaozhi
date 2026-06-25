@@ -254,6 +254,25 @@ def test_normalize_area_scoped_name_target_keeps_unmatched_short_name():
     )
 
 
+def test_normalize_area_scoped_name_target_uses_unique_phonetic_cover_candidate():
+    assert normalize_area_scoped_name_target(
+        {"name": "三联", "area": "主卧", "domain": ["cover"]},
+        ["主卧窗帘", "主卧纱帘"],
+    ) == {"name": "主卧纱帘", "area": "主卧", "domain": ["cover"]}
+
+
+def test_normalize_area_scoped_name_target_keeps_ambiguous_phonetic_candidate():
+    arguments = {"name": "三联", "area": "主卧", "domain": ["cover"]}
+
+    assert (
+        normalize_area_scoped_name_target(
+            arguments,
+            ["主卧纱帘", "主卧三联帘"],
+        )
+        == arguments
+    )
+
+
 def test_detects_ac_climate_turn_request():
     assert is_ac_climate_turn_request(
         "HassTurnOn",

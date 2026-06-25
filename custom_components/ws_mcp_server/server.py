@@ -552,7 +552,17 @@ def _area_entity_names(
     area_name: Any,
     domains: list[str],
 ) -> list[str]:
-    return [state.name for state in _area_entity_states(hass, area_name, domains)]
+    registry = entity_registry.async_get(hass)
+    area_entity_names = []
+    for state in _area_entity_states(hass, area_name, domains):
+        area_entity_names.append(state.name)
+        entity_entry = registry.async_get(state.entity_id)
+        aliases = getattr(entity_entry, "aliases", None) if entity_entry else None
+        if aliases:
+            area_entity_names.extend(
+                alias for alias in aliases if isinstance(alias, str) and alias
+            )
+    return area_entity_names
 
 
 def _single_named_area_entity_id(
