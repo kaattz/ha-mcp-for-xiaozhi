@@ -46,7 +46,7 @@ CLIMATE_DEVICE_KEYWORDS = (
 ALL_TARGET_WORDS = ("所有", "全部", "全屋")
 PHONETIC_MATCH_MIN_SCORE = 0.78
 PHONETIC_MATCH_MIN_GAP = 0.15
-POSITION_MATCH_BONUS = 0.18
+POSITION_MATCH_BONUS = 0.10
 POSITION_MISMATCH_PENALTY = 0.18
 NEAR_INITIAL_GROUPS = (
     frozenset(("s", "sh")),
@@ -65,6 +65,24 @@ POSITION_TOKEN_GROUPS = {
     "左": frozenset(("左", "佐", "坐", "做", "走")),
     "右": frozenset(("右", "又", "有", "幼")),
 }
+POSITION_PHRASE_REPLACEMENTS = (
+    ("左手边的", "左"),
+    ("左手边", "左"),
+    ("左边的", "左"),
+    ("左边", "左"),
+    ("左侧的", "左"),
+    ("左侧", "左"),
+    ("左面的", "左"),
+    ("左面", "左"),
+    ("右手边的", "右"),
+    ("右手边", "右"),
+    ("右边的", "右"),
+    ("右边", "右"),
+    ("右侧的", "右"),
+    ("右侧", "右"),
+    ("右面的", "右"),
+    ("右面", "右"),
+)
 GENERIC_AREA_TARGET_DOMAINS = {
     "空调": "climate",
     "地暖": "climate",
@@ -393,9 +411,10 @@ def _unique_phonetic_area_match(
     candidates: set[str],
 ) -> str | None:
     target_variants = _name_variants_without_area(name, area)
+    candidate_groups = _group_area_candidates_by_unprefixed_name(candidates, area)
     candidate_variants = {
-        candidate: _name_variants_without_area(candidate, area)
-        for candidate in candidates
+        key: _candidate_group_variants(group, area)
+        for key, group in candidate_groups.items()
     }
     if _target_is_literal_candidate_part(target_variants, candidate_variants):
         return None
@@ -412,9 +431,9 @@ def _unique_phonetic_area_match(
                     target_variants,
                     variants,
                 ),
-                candidate,
+                key,
             )
-            for candidate, variants in candidate_variants.items()
+            for key, variants in candidate_variants.items()
         ),
         reverse=True,
     )
@@ -428,7 +447,40 @@ def _unique_phonetic_area_match(
         or top_score - second_score < PHONETIC_MATCH_MIN_GAP
     ):
         return None
-    return top_candidate
+    return _preferred_area_candidate_name(candidate_groups[top_candidate], area)
+
+
+def _group_area_candidates_by_unprefixed_name(
+    candidates: set[str],
+    area: str,
+) -> dict[str, set[str]]:
+    groups: dict[str, set[str]] = {}
+    for candidate in candidates:
+        variants = _name_variants_without_area(candidate, area)
+        if not variants:
+            continue
+        key = min(variants, key=len)
+        groups.setdefault(key, set()).add(candidate)
+    return groups
+
+
+def _candidate_group_variants(candidates: set[str], area: str) -> set[str]:
+    variants: set[str] = set()
+    for candidate in candidates:
+        variants.update(_name_variants_without_area(candidate, area))
+    return variants
+
+
+def _preferred_area_candidate_name(candidates: set[str], area: str) -> str:
+    normalized_area = _normalize_phonetic_text(area)
+    return sorted(
+        candidates,
+        key=lambda candidate: (
+            _normalize_phonetic_text(candidate).startswith(normalized_area),
+            len(candidate),
+        ),
+        reverse=True,
+    )[0]
 
 
 def _adjust_phonetic_score_for_position(
@@ -488,18 +540,20 @@ def _target_is_literal_candidate_part(
 
 
 def _name_variants_without_area(name: str, area: str) -> set[str]:
-    variants = {_normalize_phonetic_text(name)}
+    normalized_name = _normalize_phonetic_text(name)
     normalized_area = _normalize_phonetic_text(area)
-    for variant in tuple(variants):
-        if normalized_area and variant.startswith(normalized_area):
-            stripped_variant = variant[len(normalized_area) :]
-            if stripped_variant:
-                variants.add(stripped_variant)
-    return {variant for variant in variants if variant}
+    if normalized_area and normalized_name.startswith(normalized_area):
+        stripped_name = normalized_name[len(normalized_area) :]
+        if stripped_name:
+            return {stripped_name}
+    return {normalized_name} if normalized_name else set()
 
 
 def _normalize_phonetic_text(value: str) -> str:
-    return re.sub(r"\s+", "", value.strip())
+    normalized_value = re.sub(r"\s+", "", value.strip())
+    for source, replacement in POSITION_PHRASE_REPLACEMENTS:
+        normalized_value = normalized_value.replace(source, replacement)
+    return normalized_value.replace("的", "")
 
 
 def _phonetic_phrase_similarity(left: str, right: str) -> float:

@@ -9,6 +9,6 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/c1pher-cn/ha-mcp-for-xiaozhi/issues",
   "requirements": ["mcp==1.14.1", "pypinyin==0.55.0"],
-  "version": "0.3.9"
+  "version": "0.4.0"
 }
 

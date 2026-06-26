@@ -280,6 +280,46 @@ def test_normalize_area_scoped_name_target_uses_positional_phonetic_candidate():
     ) == {"name": "主卧左壁灯", "area": "主卧", "domain": ["light"]}
 
 
+def test_normalize_area_scoped_name_target_deduplicates_same_entity_alias_candidates():
+    assert normalize_area_scoped_name_target(
+        {"name": "左臂灯", "area": "主卧", "domain": ["light"]},
+        [
+            "主卧右壁灯",
+            "右壁灯",
+            "主卧左壁灯",
+            "左壁灯",
+            "主卧左台灯",
+            "左台灯",
+        ],
+    ) == {"name": "主卧左壁灯", "area": "主卧", "domain": ["light"]}
+
+
+def test_normalize_area_scoped_name_target_ignores_area_prefix_in_phonetic_score():
+    assert normalize_area_scoped_name_target(
+        {"name": "主卧左臂灯", "area": "主卧", "domain": ["light"]},
+        [
+            "主卧右壁灯",
+            "右壁灯",
+            "主卧左壁灯",
+            "左壁灯",
+            "主卧左台灯",
+            "左台灯",
+        ],
+    ) == {"name": "主卧左壁灯", "area": "主卧", "domain": ["light"]}
+
+
+def test_normalize_area_scoped_name_target_normalizes_positional_phrase_alias():
+    assert normalize_area_scoped_name_target(
+        {"name": "左边的台灯", "area": "主卧", "domain": ["light"]},
+        [
+            "主卧右台灯",
+            "右台灯",
+            "主卧左台灯",
+            "左台灯",
+        ],
+    ) == {"name": "主卧左台灯", "area": "主卧", "domain": ["light"]}
+
+
 def test_normalize_area_scoped_name_target_keeps_missing_position_phonetic_candidate():
     arguments = {"name": "手臂灯", "area": "主卧", "domain": ["light"]}
 
