@@ -38,6 +38,7 @@ from .gateway_context import (
     CLIMATE_DEVICE_AIR_CONDITIONER,
     has_direct_entity_target,
     has_explicit_room_or_area,
+    inject_active_area,
     inject_area_from_name_prefix,
     is_ac_climate_turn_request,
     is_all_air_conditioner_request,
@@ -49,6 +50,7 @@ from .gateway_context import (
     parse_active_context,
     rewrite_current_room_ac_entity_targets,
     should_fetch_gateway_context,
+    should_inject_active_area,
     should_inject_preferred_area_id,
     strip_room_metadata_for_direct_entity_target,
 )
@@ -193,8 +195,36 @@ async def create_server(
     async def call_tool(name: str, arguments: dict) -> Sequence[types.TextContent]:
         """Handle calling tools."""
         if is_gateway_context_enabled(gateway_url):
-            if should_inject_preferred_area_id(name, False):
+            if should_inject_preferred_area_id(name, False) or should_inject_active_area(
+                name,
+                arguments,
+            ):
                 arguments = inject_area_from_name_prefix(arguments, _area_names(hass))
+            if should_inject_active_area(name, arguments):
+                try:
+                    active_context = await _fetch_active_context(gateway_url)
+                except ActiveContextAmbiguousError:
+                    return _json_response(
+                        {
+                            "status": "active_context_ambiguous",
+                            "reason": "multiple_active_contexts",
+                        }
+                    )
+                except GatewayContextError as e:
+                    return _json_response(
+                        {
+                            "status": "active_context_unavailable",
+                            "reason": str(e),
+                            "action": "ask_user_for_room",
+                        }
+                    )
+                arguments = inject_active_area(name, arguments, active_context)
+                _LOGGER.info(
+                    "Injected Xiaozhi active area: tool=%s room=%s area_id=%s",
+                    name,
+                    active_context.room_name,
+                    active_context.ha_area_id,
+                )
             arguments = normalize_generic_area_target(arguments)
             arguments = normalize_area_scoped_name_target(
                 arguments,

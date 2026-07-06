@@ -19,6 +19,7 @@ spec.loader.exec_module(gateway_context)
 GatewayContextError = gateway_context.GatewayContextError
 build_context_payload = gateway_context.build_context_payload
 build_gateway_room_prompt = gateway_context.build_gateway_room_prompt
+inject_active_area = gateway_context.inject_active_area
 inject_area_from_name_prefix = gateway_context.inject_area_from_name_prefix
 normalize_generic_area_target = gateway_context.normalize_generic_area_target
 normalize_area_scoped_name_target = gateway_context.normalize_area_scoped_name_target
@@ -35,6 +36,7 @@ is_ac_climate_turn_request = gateway_context.is_ac_climate_turn_request
 is_all_air_conditioner_request = gateway_context.is_all_air_conditioner_request
 is_custom_ac_control_enabled = gateway_context.is_custom_ac_control_enabled
 should_inject_preferred_area_id = gateway_context.should_inject_preferred_area_id
+should_inject_active_area = gateway_context.should_inject_active_area
 should_fetch_gateway_context = gateway_context.should_fetch_gateway_context
 rewrite_current_room_ac_entity_targets = (
     gateway_context.rewrite_current_room_ac_entity_targets
@@ -165,6 +167,64 @@ def test_build_context_payload_does_not_inject_preferred_area_when_tool_has_expl
     )
 
     assert payload["tool_arguments"] == arguments
+
+
+def test_inject_active_area_scopes_current_room_context_query():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "master_bedroom",
+            "room_name": "主卧",
+            "ha_area_id": "zhu_wo",
+        }
+    )
+
+    assert should_inject_active_area("GetLiveContext", {"domain": ["cover"]})
+    assert inject_active_area(
+        "GetLiveContext",
+        {"domain": ["cover"]},
+        active_context,
+    ) == {"domain": ["cover"], "area": "主卧"}
+
+
+def test_inject_active_area_scopes_current_room_turn_tool():
+    active_context = parse_active_context(
+        {
+            "active": True,
+            "device_id": "xiaozhi-device",
+            "room_id": "master_bedroom",
+            "room_name": "主卧",
+            "ha_area_id": "zhu_wo",
+        }
+    )
+
+    assert should_inject_active_area(
+        "HassTurnOn",
+        {"name": "窗帘", "domain": ["cover"]},
+    )
+    assert inject_active_area(
+        "HassTurnOn",
+        {"name": "窗帘", "domain": ["cover"]},
+        active_context,
+    ) == {"name": "窗帘", "domain": ["cover"], "area": "主卧"}
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("HassTurnOn", {"name": "窗帘", "domain": ["cover"], "area": "客厅"}),
+        ("HassTurnOn", {"entity_id": "cover.master_bedroom_thick_curtain"}),
+        ("HassTurnOn", {"name": "所有窗帘", "domain": ["cover"]}),
+        ("HassBroadcast", {"message": "吃饭了"}),
+        ("get_weather", {"city": "温州"}),
+    ],
+)
+def test_should_not_inject_active_area_for_explicit_global_or_non_ha_targets(
+    tool_name,
+    arguments,
+):
+    assert not should_inject_active_area(tool_name, arguments)
 
 
 def test_inject_area_from_name_prefix_uses_matching_area_name():

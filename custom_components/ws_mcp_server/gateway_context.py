@@ -15,6 +15,16 @@ ENTITY_TARGET_KEYS = {"entity_id", "entity_ids"}
 HOME_ASSISTANT_INTENT_TOOL_PREFIX = "Hass"
 MULTIPLE_ACTIVE_CONTEXTS = "multiple_active_contexts"
 DEFAULT_GATEWAY_PORT = 8125
+ACTIVE_AREA_TOOL_NAMES = frozenset(
+    (
+        "GetLiveContext",
+        "HassLightSet",
+        "HassSetPosition",
+        "HassStopMoving",
+        "HassTurnOff",
+        "HassTurnOn",
+    )
+)
 CONF_AC_CONTROL_MODE = "ac_control_mode"
 CONF_AC_TURN_ON_HVAC_MODE = "ac_turn_on_hvac_mode"
 CONF_AC_CUSTOM_TOOL_NAME = "ac_custom_tool_name"
@@ -179,6 +189,26 @@ def should_fetch_gateway_context(
     return should_inject_preferred_area_id(tool_name, supports_preferred_area_id)
 
 
+def should_inject_active_area(tool_name: str, arguments: dict[str, Any]) -> bool:
+    if has_explicit_room_or_area(arguments):
+        return False
+    if has_direct_entity_target(arguments):
+        return False
+    if is_all_target_request(arguments):
+        return False
+    return tool_name.rsplit("__", 1)[-1] in ACTIVE_AREA_TOOL_NAMES
+
+
+def inject_active_area(
+    tool_name: str,
+    arguments: dict[str, Any],
+    active_context: ActiveGatewayContext,
+) -> dict[str, Any]:
+    if not should_inject_active_area(tool_name, arguments):
+        return arguments
+    return {**arguments, "area": active_context.room_name}
+
+
 def build_gateway_room_prompt(base_prompt: str) -> str:
     return f"{base_prompt}\n\n{GATEWAY_ROOM_PROMPT}"
 
@@ -334,6 +364,11 @@ def is_all_air_conditioner_request(arguments: dict[str, Any]) -> bool:
     ):
         return False
     return any(word in name for word in ALL_TARGET_WORDS)
+
+
+def is_all_target_request(arguments: dict[str, Any]) -> bool:
+    name = arguments.get("name")
+    return isinstance(name, str) and any(word in name for word in ALL_TARGET_WORDS)
 
 
 def ac_climate_turn_hvac_mode(
